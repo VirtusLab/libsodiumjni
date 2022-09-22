@@ -40,3 +40,5 @@ def toCrLfOpt(content: Array[Byte]): Option[Array[Byte]] = {
     Some(updatedContent)
   }
 }
+def isArmArchitecture: Boolean =
+  os.proc("uname", "-p").call(cwd = os.pwd).out.trim() == "arm"

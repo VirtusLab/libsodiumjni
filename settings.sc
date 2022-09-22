@@ -1,6 +1,6 @@
 import java.util.Arrays
 import $file.visualstudioutil, visualstudioutil.vcvars
-import $file.util, util.toCrLfOpt
+import $file.util, util.toCrLfOpt, util.isArmArchitecture
 
 import mill._, scalalib._
 import mill.scalalib.publish.PublishInfo
@@ -69,7 +69,9 @@ trait JniUploadDownloadArtifacts extends JniWindowsModule with JniUnixPublish {
   def jniClassifier = T {
     if (Properties.isWin) "x86_64-pc-win32"
     else if (Properties.isLinux) "x86_64-pc-linux"
-    else if (Properties.isMac) "x86_64-apple-darwin"
+    else if (Properties.isMac)
+      if (isArmArchitecture) "aarch64-apple-darwin"
+      else "x86_64-apple-darwin"
     else sys.error("Unrecognized OS")
   }
 
@@ -109,10 +111,11 @@ trait JniResourcesModule extends JniUploadDownloadArtifacts with JniWindowsAddRe
           assert(idx >= 0, s"no extension found in $f name")
           val classifier = name.take(idx)
           val osName = classifier match {
-            case "x86_64-apple-darwin" => "darwin"
-            case "x86_64-pc-linux"     => "linux64"
-            case "x86_64-pc-win32"     => "windows64"
-            case other                 => sys.error(s"Unrecognized classifier: $classifier")
+            case "x86_64-apple-darwin"  => "darwin"
+            case "aarch64-apple-darwin" => "arm-darwin"
+            case "x86_64-pc-linux"      => "linux64"
+            case "x86_64-pc-win32"      => "windows64"
+            case other                  => sys.error(s"Unrecognized classifier: $classifier")
           }
           val ext  = name.drop(idx + 1)
           val dest = destDir / "META-INF" / "native" / osName / s"$libraryName0.$ext"
@@ -517,22 +520,11 @@ trait JniUnixModule extends Module {
       T.persistent {
         val dllName0       = unixLibName()
         val unixExtension0 = unixExtension()
-        val x86Objs        = macosX86_64Compile()
-        val armObjs        = macosArm64Compile()
         val destDir        = T.dest / "libs"
         val gcc0           = unixGcc()
         val dest           = destDir / s"$dllName0.dylib"
-        val crossBuild     = false
-        val x86DyLib = generateUnixSo(
-          dllName0,
-          unixExtension0,
-          Seq("-arch", "x86_64"),
-          x86Objs,
-          destDir / "x86_64",
-          unixLinkingLibs(),
-          gcc0
-        )
-        if (crossBuild) {
+        if (isArmArchitecture) {
+          val armObjs        = macosArm64Compile()
           val armDyLib = generateUnixSo(
             dllName0,
             unixExtension0,
@@ -542,12 +534,21 @@ trait JniUnixModule extends Module {
             unixLinkingLibs(),
             gcc0
           )
-          os.proc("lipo", "-create", "-o", dest, x86DyLib.path, armDyLib.path)
-            .call(cwd = destDir, stdout = os.Inherit)
-          PathRef(dest)
+          PathRef(armDyLib.path)
         }
-        else
+        else {
+          val x86Objs        = macosX86_64Compile()
+          val x86DyLib = generateUnixSo(
+            dllName0,
+            unixExtension0,
+            Seq("-arch", "arm64"),
+            x86Objs,
+            destDir / "arm64",
+            unixLinkingLibs(),
+            gcc0
+          )
           PathRef(x86DyLib.path)
+        }
       }
     else
       T.persistent {
@@ -596,22 +597,23 @@ trait JniUnixModule extends Module {
       T.persistent {
         val dllName0 = unixLibName()
         val destDir  = T.ctx().dest / "libs"
-        val x86Objs  = macosX86_64Compile()
-        val armObjs  = macosArm64Compile()
-        val x86A = buildUnixA(
-          dllName0,
-          destDir / "x86_64",
-          x86Objs
-        )
-        val armA = buildUnixA(
-          dllName0,
-          destDir / "arm64",
-          armObjs
-        )
-        val a = destDir / s"$dllName0.a"
-        os.proc("lipo", "-create", "-o", a, x86A.path, armA.path)
-          .call(cwd = destDir, stdout = os.Inherit)
-        PathRef(a)
+        val archA = if (isArmArchitecture) {
+          val armObjs = macosArm64Compile()
+          buildUnixA(
+            dllName0,
+            destDir / "arm64",
+            armObjs
+          )
+        }
+        else {
+          val x86Objs = macosX86_64Compile()
+          buildUnixA(
+            dllName0,
+            destDir / "x86_64",
+            x86Objs
+          )
+        }
+        PathRef(archA.path)
       }
     else
       T.persistent {
@@ -656,7 +658,9 @@ trait JniUnixAddResources extends JavaModule with JniUnixModule {
 
 trait JniUnixPublish extends JniUnixModule {
   def osClassifier = T {
-    if (Properties.isMac) "x86_64-apple-darwin"
+    if (Properties.isMac)
+      if (isArmArchitecture) "aarch64-apple-darwin"
+      else "x86_64-apple-darwin"
     else if (Properties.isLinux) "x86_64-pc-linux"
     else sys.error("Unrecognized OS")
   }
