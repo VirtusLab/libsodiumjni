@@ -14,8 +14,8 @@ import scala.concurrent.duration.Duration
 object libsodiumjni extends MavenModule with JniModule with JniPublishModule with JniResourcesModule
     with GenerateHeaders {
   def ivyDeps = super.ivyDeps() ++ Seq(
-    ivy"net.java.dev.jna:jna:5.8.0",
-    ivy"net.java.dev.jna:jna-platform:5.8.0"
+    ivy"net.java.dev.jna:jna:5.12.1",
+    ivy"net.java.dev.jna:jna-platform:5.12.1"
   )
 
   def windowsDllName = "libsodiumjni"
