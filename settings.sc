@@ -541,9 +541,9 @@ trait JniUnixModule extends Module {
           val x86DyLib = generateUnixSo(
             dllName0,
             unixExtension0,
-            Seq("-arch", "arm64"),
+            Seq("-arch", "x86_64"),
             x86Objs,
-            destDir / "arm64",
+            destDir / "x86_64",
             unixLinkingLibs(),
             gcc0
           )
