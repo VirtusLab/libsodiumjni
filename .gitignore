@@ -1,3 +1,6 @@
 **/target
 out/
 .bsp/
+.metals/
+.vscode/
+.bloop/

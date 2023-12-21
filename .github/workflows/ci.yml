@@ -16,7 +16,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - name: Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         fetch-depth: 0
         submodules: true
@@ -27,12 +27,6 @@ jobs:
     - name: Install libsodium (Linux)
       if: runner.os == 'Linux'
       run: sudo apt-get install -y libsodium-dev
-    - name: Update XCode version
-      if: runner.os == 'macOS'
-      # https://github.com/actions/virtual-environments/issues/2557
-      run: |
-        sudo xcode-select -s "/Applications/Xcode_12.5.app" || sudo xcode-select -s "/Applications/Xcode_12.3.app" || ( ls /Applications; exit 1 )
-        sudo rm -Rf /Library/Developer/CommandLineTools/SDKs/*
     - name: Run tests
       run: ./mill -i __.test
     - name: Build and publish locally
@@ -53,7 +47,7 @@ jobs:
     runs-on: ARM64
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: true
@@ -84,7 +78,7 @@ jobs:
     if: github.event_name == 'push'
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: true
