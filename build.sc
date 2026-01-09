@@ -27,7 +27,7 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
 
   private def windowsLibSodiumDistDir(): os.Path = {
     val archiveCache = ArchiveCache()
-    archiveCache.get(Artifact("https://download.libsodium.org/libsodium/releases/libsodium-1.0.18-stable-msvc.zip")).unsafeRun()(archiveCache.cache.ec) match {
+    archiveCache.get(Artifact("https://download.libsodium.org/libsodium/releases/libsodium-1.0.21-stable-msvc.zip")).unsafeRun()(archiveCache.cache.ec) match {
       case Left(e) => throw new Exception(e)
       case Right(dir0) => os.Path(dir0, os.pwd)
     }
