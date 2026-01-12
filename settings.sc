@@ -190,7 +190,7 @@ trait JniWindowsModule extends Module {
   def windowsDllCOptions = T(Seq.empty[String])
   def windowsLibCOptions = T(Seq.empty[String])
 
-  def windowsBatInit     = T("")
+  def windowsBatInit = T("")
 
   private def windowsCompile0(
     dest: os.Path,
@@ -264,7 +264,7 @@ trait JniWindowsModule extends Module {
       objs.exists(o => os.mtime(o.path) > destMtime)
     }
     if (needsUpdate) {
-      val objArgs = objs.map(f =>"\"" + f.path.toString + "\"").mkString(" ")
+      val objArgs = objs.map(f => "\"" + f.path.toString + "\"").mkString(" ")
       val script =
         s"""@call "$vcvars"
            |if %errorlevel% neq 0 exit /b %errorlevel%
@@ -368,8 +368,16 @@ trait JniUnixModule extends Module {
     Seq("gcc")
   }
 
-  def unixCOptions    = T(Seq.empty[String])
-  def unixLinkingLibs = T(Seq.empty[String])
+  def unixCOptions        = T(Seq.empty[String])
+  def unixLinkingLibs     = T(Seq.empty[String])
+  def unixLinkingLibPaths = T(Seq.empty[String])
+  
+  // Helper method to check if a library path contains architecture-compatible libraries
+  // This can be overridden in build.sc to provide architecture checking
+  protected def checkLibraryArchitectureForPath(libPath: os.Path, requiredArch: String): Boolean = {
+    // Default implementation: assume compatibility (can be overridden)
+    true
+  }
 
   def unixJavaHome = T {
     import java.io.File
@@ -491,21 +499,41 @@ trait JniUnixModule extends Module {
     objs: Seq[PathRef],
     destDir: os.Path,
     unixLinkingLibs: Seq[String],
+    unixLinkingLibPaths: Seq[String],
     gcc0: Seq[String]
   ) = {
     if (!os.exists(destDir))
       os.makeDir.all(destDir)
-    val dest     = destDir / s"$dllName0.$unixExtension0"
-    val relDest  = dest.relativeTo(os.pwd)
-    val objsArgs = objs.map(o => o.path.relativeTo(os.pwd).toString).distinct
-    val libsArgs = unixLinkingLibs.map(l => "-l" + l)
+    val dest         = destDir / s"$dllName0.$unixExtension0"
+    val relDest      = dest.relativeTo(os.pwd)
+    val objsArgs     = objs.map(o => o.path.relativeTo(os.pwd).toString).distinct
+    // Extract architecture from extraOpts (e.g., "-arch", "x86_64" or "-arch", "arm64")
+    val archOpt = extraOpts.zipWithIndex.find(_._1 == "-arch").map(_._2 + 1).flatMap { idx =>
+      if (idx < extraOpts.length) Some(extraOpts(idx)) else None
+    }
+    // Filter library paths based on architecture compatibility on macOS
+    val filteredLibPaths = if (Properties.isMac && archOpt.isDefined) {
+      val arch = archOpt.get
+      unixLinkingLibPaths.filter { libPath =>
+        val path = os.Path(libPath, os.pwd)
+        // Check if library supports the required architecture
+        checkLibraryArchitectureForPath(path, arch)
+      }
+    } else {
+      unixLinkingLibPaths
+    }
+    val libPathsArgs = filteredLibPaths.map(l => "-L" + l)
+    val libsArgs     = unixLinkingLibs.map(l => "-l" + l)
     val needsUpdate = !os.isFile(dest) || {
       val destMtime = os.mtime(dest)
       objs.exists(o => os.mtime(o.path) > destMtime)
     }
     if (needsUpdate) {
       val command =
-        gcc0 ++ Seq("-shared") ++ extraOpts ++ Seq("-o", relDest.toString) ++ objsArgs ++ libsArgs
+        gcc0 ++ Seq("-shared") ++ extraOpts ++ Seq(
+          "-o",
+          relDest.toString
+        ) ++ objsArgs ++ libPathsArgs ++ libsArgs
       System.err.println(s"Running ${command.mkString(" ")}")
       val res = os
         .proc(command.map(x => x: os.Shellable): _*)
@@ -524,7 +552,7 @@ trait JniUnixModule extends Module {
         val gcc0           = unixGcc()
         val dest           = destDir / s"$dllName0.dylib"
         if (isArmArchitecture) {
-          val armObjs        = macosArm64Compile()
+          val armObjs = macosArm64Compile()
           val armDyLib = generateUnixSo(
             dllName0,
             unixExtension0,
@@ -532,12 +560,13 @@ trait JniUnixModule extends Module {
             armObjs,
             destDir / "arm64",
             unixLinkingLibs(),
+            unixLinkingLibPaths(),
             gcc0
           )
           PathRef(armDyLib.path)
         }
         else {
-          val x86Objs        = macosX86_64Compile()
+          val x86Objs = macosX86_64Compile()
           val x86DyLib = generateUnixSo(
             dllName0,
             unixExtension0,
@@ -545,6 +574,7 @@ trait JniUnixModule extends Module {
             x86Objs,
             destDir / "x86_64",
             unixLinkingLibs(),
+            unixLinkingLibPaths(),
             gcc0
           )
           PathRef(x86DyLib.path)
@@ -564,6 +594,7 @@ trait JniUnixModule extends Module {
           objs,
           destDir,
           unixLinkingLibs(),
+          unixLinkingLibPaths(),
           gcc0
         )
       }
