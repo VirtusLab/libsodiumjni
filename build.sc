@@ -1,4 +1,4 @@
-import $ivy.`de.tototec::de.tobiasroeser.mill.vcs.version_mill0.10:0.1.4`
+import $ivy.`de.tototec::de.tobiasroeser.mill.vcs.version_mill0.11:0.4.1`
 import $file.settings, settings.{GenerateHeaders, JniModule, JniPublishModule, JniResourcesModule}
 
 import coursier.cache.ArchiveCache
@@ -257,11 +257,11 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
     )
   )
 
-  object test extends Tests {
-    def ivyDeps = super.ivyDeps() ++ Seq(
+  object test extends MavenModuleTests with TestModule.Junit4 {
+    override def ivyDeps = super.ivyDeps() ++ Seq(
       ivy"com.novocode:junit-interface:0.11"
     )
-    def testFramework = "com.novocode.junit.JUnitFramework"
+    override def testFramework = "com.novocode.junit.JUnitFramework"
   }
 }
 
