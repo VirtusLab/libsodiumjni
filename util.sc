@@ -1,6 +1,6 @@
 def toCrLfOpt(content: Array[Byte]): Option[Array[Byte]] = {
-  val cr = '\r'.toByte
-  val lf = '\n'.toByte
+  val cr      = '\r'.toByte
+  val lf      = '\n'.toByte
   val indices = content
     .iterator
     .zipWithIndex

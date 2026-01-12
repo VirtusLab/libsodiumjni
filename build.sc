@@ -159,7 +159,7 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
       if (os.exists(headerPath))
         return path
     }
-    val osName = if (Properties.isMac) "macOS" else "Linux"
+    val osName     = if (Properties.isMac) "macOS" else "Linux"
     val installCmd =
       if (Properties.isMac) "brew install libsodium" else "sudo apt-get install libsodium-dev"
     sys.error(
