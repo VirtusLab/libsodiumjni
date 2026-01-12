@@ -30,7 +30,7 @@ jobs:
         fetch-depth: 0
         submodules: true
     - uses: coursier/cache-action@v7
-    - uses: coursier/setup-action@v1.2.0-M3
+    - uses: VirtusLab/scala-cli-setup@v1
       with:
         jvm: zulu:17
     - name: Install libsodium (Linux)
@@ -77,7 +77,7 @@ jobs:
           fetch-depth: 0
           submodules: true
       - uses: coursier/cache-action@v7
-      - uses: coursier/setup-action@v1.2.0-M3
+      - uses: VirtusLab/scala-cli-setup@v1
         with:
           jvm: zulu:17
       - name: Install libsodium (Linux)
