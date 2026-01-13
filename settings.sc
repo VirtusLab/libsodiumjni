@@ -16,8 +16,8 @@ trait GenerateHeaders extends JavaModule {
     Seq("-h", dest.toNIO.toAbsolutePath.toString)
   }
   def compile = T {
-    val res = super.compile()
-    val dir = cDirectory()
+    val res         = super.compile()
+    val dir         = cDirectory()
     val headerFiles = Seq(dir).flatMap { dir =>
       if (os.isDir(dir))
         os.walk(dir)
@@ -110,7 +110,7 @@ trait JniResourcesModule extends JniUploadDownloadArtifacts with JniWindowsAddRe
           val idx  = name.lastIndexOf('.')
           assert(idx >= 0, s"no extension found in $f name")
           val classifier = name.take(idx)
-          val osName = classifier match {
+          val osName     = classifier match {
             case "x86_64-apple-darwin"  => "darwin"
             case "aarch64-apple-darwin" => "arm-darwin"
             case "x86_64-pc-linux"      => "linux64"
@@ -190,7 +190,7 @@ trait JniWindowsModule extends Module {
   def windowsDllCOptions = T(Seq.empty[String])
   def windowsLibCOptions = T(Seq.empty[String])
 
-  def windowsBatInit     = T("")
+  def windowsBatInit = T("")
 
   private def windowsCompile0(
     dest: os.Path,
@@ -200,7 +200,7 @@ trait JniWindowsModule extends Module {
     windowsBatInit: String
   ): Seq[PathRef] = {
     val destDir = dest / "obj"
-    val cFiles = sources.flatMap { dir =>
+    val cFiles  = sources.flatMap { dir =>
       if (os.isDir(dir))
         os.walk(dir)
           .filter(p => os.isFile(p) && p.last.endsWith(".c"))
@@ -215,7 +215,7 @@ trait JniWindowsModule extends Module {
       val needsUpdate = !os.isFile(output) || os.mtime(output) < os.mtime(f)
       if (needsUpdate) {
         val userOptions = cOptions.map(v => "\"" + v + "\"").mkString(" ")
-        val script =
+        val script      =
           s"""@call "$vcvars"
              |if %errorlevel% neq 0 exit /b %errorlevel%
              |$windowsBatInit
@@ -254,18 +254,18 @@ trait JniWindowsModule extends Module {
     val destDir  = T.ctx().dest / "dlls"
     if (!os.exists(destDir))
       os.makeDir.all(destDir)
-    val dest     = destDir / s"$dllName0.dll"
-    val relDest  = dest.relativeTo(os.pwd)
-    val objs     = windowsDllCompile()
-    val objsArgs = objs.map(o => o.path.relativeTo(os.pwd).toString).distinct
-    val libsArgs = windowsLinkingLibs().map(l => l + ".lib")
+    val dest        = destDir / s"$dllName0.dll"
+    val relDest     = dest.relativeTo(os.pwd)
+    val objs        = windowsDllCompile()
+    val objsArgs    = objs.map(o => o.path.relativeTo(os.pwd).toString).distinct
+    val libsArgs    = windowsLinkingLibs().map(l => l + ".lib")
     val needsUpdate = !os.isFile(dest) || {
       val destMtime = os.mtime(dest)
       objs.exists(o => os.mtime(o.path) > destMtime)
     }
     if (needsUpdate) {
-      val objArgs = objs.map(f =>"\"" + f.path.toString + "\"").mkString(" ")
-      val script =
+      val objArgs = objs.map(f => "\"" + f.path.toString + "\"").mkString(" ")
+      val script  =
         s"""@call "$vcvars"
            |if %errorlevel% neq 0 exit /b %errorlevel%
            |${windowsBatInit()}
@@ -279,9 +279,9 @@ trait JniWindowsModule extends Module {
   }
 
   def windowsLib = T {
-    val fileName    = windowsDllName() + ".lib"
-    val allObjFiles = windowsLibCompile().map(_.path)
-    val output      = T.dest / fileName
+    val fileName       = windowsDllName() + ".lib"
+    val allObjFiles    = windowsLibCompile().map(_.path)
+    val output         = T.dest / fileName
     val libNeedsUpdate =
       !os.isFile(output) || allObjFiles.exists(f => os.mtime(output) < os.mtime(f))
     if (libNeedsUpdate) {
@@ -302,10 +302,10 @@ trait JniWindowsModule extends Module {
 
 trait JniWindowsAddResources extends JavaModule with JniWindowsModule {
   def windowsResources = T.sources {
-    val dll0   = windowsDll().path
-    val dir    = T.ctx().dest / "dll-resources"
-    val dllDir = dir / "META-INF" / "native" / "windows64"
-    val dest   = dllDir / dll0.last
+    val dll0        = windowsDll().path
+    val dir         = T.ctx().dest / "dll-resources"
+    val dllDir      = dir / "META-INF" / "native" / "windows64"
+    val dest        = dllDir / dll0.last
     val needsUpdate = !os.isFile(dest) || {
       val content    = os.read.bytes(dest)
       val newContent = os.read.bytes(dll0)
@@ -368,8 +368,15 @@ trait JniUnixModule extends Module {
     Seq("gcc")
   }
 
-  def unixCOptions    = T(Seq.empty[String])
-  def unixLinkingLibs = T(Seq.empty[String])
+  def unixCOptions        = T(Seq.empty[String])
+  def unixLinkingLibs     = T(Seq.empty[String])
+  def unixLinkingLibPaths = T(Seq.empty[String])
+
+  // Helper method to check if a library path contains architecture-compatible libraries
+  // This can be overridden in build.sc to provide architecture checking
+  protected def checkLibraryArchitectureForPath(libPath: os.Path, requiredArch: String): Boolean =
+    // Default implementation: assume compatibility (can be overridden)
+    true
 
   def unixJavaHome = T {
     import java.io.File
@@ -415,7 +422,7 @@ trait JniUnixModule extends Module {
       val needsUpdate = !os.isFile(output) || os.mtime(output) < os.mtime(f)
       if (needsUpdate) {
         val relOutput = output.relativeTo(os.pwd)
-        val command = gcc0 ++ Seq(
+        val command   = gcc0 ++ Seq(
           "-c",
           "-Wall",
           "-fPIC",
@@ -491,6 +498,7 @@ trait JniUnixModule extends Module {
     objs: Seq[PathRef],
     destDir: os.Path,
     unixLinkingLibs: Seq[String],
+    unixLinkingLibPaths: Seq[String],
     gcc0: Seq[String]
   ) = {
     if (!os.exists(destDir))
@@ -498,14 +506,33 @@ trait JniUnixModule extends Module {
     val dest     = destDir / s"$dllName0.$unixExtension0"
     val relDest  = dest.relativeTo(os.pwd)
     val objsArgs = objs.map(o => o.path.relativeTo(os.pwd).toString).distinct
-    val libsArgs = unixLinkingLibs.map(l => "-l" + l)
-    val needsUpdate = !os.isFile(dest) || {
+    // Extract architecture from extraOpts (e.g., "-arch", "x86_64" or "-arch", "arm64")
+    val archOpt = extraOpts.zipWithIndex.find(_._1 == "-arch").map(_._2 + 1).flatMap { idx =>
+      if (idx < extraOpts.length) Some(extraOpts(idx)) else None
+    }
+    // Filter library paths based on architecture compatibility on macOS
+    val filteredLibPaths = if (Properties.isMac && archOpt.isDefined) {
+      val arch = archOpt.get
+      unixLinkingLibPaths.filter { libPath =>
+        val path = os.Path(libPath, os.pwd)
+        // Check if library supports the required architecture
+        checkLibraryArchitectureForPath(path, arch)
+      }
+    }
+    else
+      unixLinkingLibPaths
+    val libPathsArgs = filteredLibPaths.map(l => "-L" + l)
+    val libsArgs     = unixLinkingLibs.map(l => "-l" + l)
+    val needsUpdate  = !os.isFile(dest) || {
       val destMtime = os.mtime(dest)
       objs.exists(o => os.mtime(o.path) > destMtime)
     }
     if (needsUpdate) {
       val command =
-        gcc0 ++ Seq("-shared") ++ extraOpts ++ Seq("-o", relDest.toString) ++ objsArgs ++ libsArgs
+        gcc0 ++ Seq("-shared") ++ extraOpts ++ Seq(
+          "-o",
+          relDest.toString
+        ) ++ objsArgs ++ libPathsArgs ++ libsArgs
       System.err.println(s"Running ${command.mkString(" ")}")
       val res = os
         .proc(command.map(x => x: os.Shellable): _*)
@@ -524,7 +551,7 @@ trait JniUnixModule extends Module {
         val gcc0           = unixGcc()
         val dest           = destDir / s"$dllName0.dylib"
         if (isArmArchitecture) {
-          val armObjs        = macosArm64Compile()
+          val armObjs  = macosArm64Compile()
           val armDyLib = generateUnixSo(
             dllName0,
             unixExtension0,
@@ -532,12 +559,13 @@ trait JniUnixModule extends Module {
             armObjs,
             destDir / "arm64",
             unixLinkingLibs(),
+            unixLinkingLibPaths(),
             gcc0
           )
           PathRef(armDyLib.path)
         }
         else {
-          val x86Objs        = macosX86_64Compile()
+          val x86Objs  = macosX86_64Compile()
           val x86DyLib = generateUnixSo(
             dllName0,
             unixExtension0,
@@ -545,6 +573,7 @@ trait JniUnixModule extends Module {
             x86Objs,
             destDir / "x86_64",
             unixLinkingLibs(),
+            unixLinkingLibPaths(),
             gcc0
           )
           PathRef(x86DyLib.path)
@@ -564,6 +593,7 @@ trait JniUnixModule extends Module {
           objs,
           destDir,
           unixLinkingLibs(),
+          unixLinkingLibPaths(),
           gcc0
         )
       }
@@ -574,9 +604,9 @@ trait JniUnixModule extends Module {
   ) = {
     if (!os.exists(destDir))
       os.makeDir.all(destDir)
-    val dest     = destDir / s"$dllName0.a"
-    val relDest  = dest.relativeTo(os.pwd)
-    val objsArgs = objs.map(o => o.path.relativeTo(os.pwd).toString).distinct
+    val dest        = destDir / s"$dllName0.a"
+    val relDest     = dest.relativeTo(os.pwd)
+    val objsArgs    = objs.map(o => o.path.relativeTo(os.pwd).toString).distinct
     val needsUpdate = !os.isFile(dest) || {
       val destMtime = os.mtime(dest)
       objs.exists(o => os.mtime(o.path) > destMtime)
@@ -597,7 +627,7 @@ trait JniUnixModule extends Module {
       T.persistent {
         val dllName0 = unixLibName()
         val destDir  = T.ctx().dest / "libs"
-        val archA = if (isArmArchitecture) {
+        val archA    = if (isArmArchitecture) {
           val armObjs = macosArm64Compile()
           buildUnixA(
             dllName0,
@@ -630,14 +660,14 @@ trait JniUnixModule extends Module {
 
 trait JniUnixAddResources extends JavaModule with JniUnixModule {
   def unixResources = T.sources {
-    val dll0 = unixSo().path
-    val dir  = T.ctx().dest / "so-resources"
+    val dll0   = unixSo().path
+    val dir    = T.ctx().dest / "so-resources"
     val osName = osDirName() match {
       case "linux" => "linux64"
       case other   => other
     }
-    val dllDir = dir / "META-INF" / "native" / osName
-    val dest   = dllDir / dll0.last
+    val dllDir      = dir / "META-INF" / "native" / osName
+    val dest        = dllDir / dll0.last
     val needsUpdate = !os.isFile(dest) || {
       val content    = os.read.bytes(dest)
       val newContent = os.read.bytes(dll0)

@@ -1,4 +1,4 @@
-import $ivy.`de.tototec::de.tobiasroeser.mill.vcs.version_mill0.10:0.1.4`
+import $ivy.`de.tototec::de.tobiasroeser.mill.vcs.version_mill0.11:0.4.1`
 import $file.settings, settings.{GenerateHeaders, JniModule, JniPublishModule, JniResourcesModule}
 
 import coursier.cache.ArchiveCache
@@ -10,6 +10,7 @@ import mill.scalalib._
 import mill.scalalib.publish._
 
 import scala.concurrent.duration.Duration
+import scala.util.Properties
 
 object libsodiumjni extends MavenModule with JniModule with JniPublishModule with JniResourcesModule
     with GenerateHeaders {
@@ -25,10 +26,162 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
     super.unixLinkingLibs() ++ Seq("sodium")
   }
 
+  private def checkLibraryArchitecture(libPath: os.Path, requiredArch: String): Boolean =
+    if (!Properties.isMac) true // On Linux, assume compatibility
+    else if (!os.exists(libPath)) false
+    else {
+      // libPath is a directory, find the actual library file
+      val dylibFiles = os.list(libPath).filter { f =>
+        os.isFile(f) && (f.last.startsWith("libsodium") && f.last.endsWith(".dylib"))
+      }
+
+      if (dylibFiles.isEmpty)
+        // No dylib found, might be a static library or symlink - assume compatible
+        return true
+
+      // Check the first dylib found (usually libsodium.dylib or libsodium.XX.dylib)
+      val dylibPath = dylibFiles.head
+
+      // Use lipo to check architectures (macOS only)
+      val lipoResult = os.proc("lipo", "-info", dylibPath.toString).call(
+        cwd = os.pwd,
+        check = false,
+        stderr = os.Pipe
+      )
+      if (lipoResult.exitCode == 0) {
+        val output = lipoResult.out.trim()
+        // Check if it's a universal binary or contains the required architecture
+        output.contains(requiredArch) || output.contains("universal")
+      }
+      else
+        // Fallback: if lipo fails, assume it's compatible (might be a symlink or static lib)
+        true
+    }
+
+  private def unixLibSodiumLibDir(requiredArch: Option[String] = None): Option[String] = {
+    // Try pkg-config first
+    val pkgConfigResult = os.proc("pkg-config", "--libs", "libsodium").call(
+      cwd = os.pwd,
+      check = false,
+      stderr = os.Pipe
+    )
+    if (pkgConfigResult.exitCode == 0) {
+      val output = pkgConfigResult.out.trim()
+      // Extract -L path from pkg-config output (e.g., "-L/opt/homebrew/lib")
+      val libPath = output.split(" ").find(_.startsWith("-L")).map(_.drop(2))
+      if (libPath.isDefined) {
+        val path = os.Path(libPath.get, os.pwd)
+        if (os.exists(path))
+          // Check architecture compatibility if required
+          if (requiredArch.isEmpty || checkLibraryArchitecture(path, requiredArch.get))
+            return Some(libPath.get)
+      }
+      // If pkg-config succeeds but no -L flag, library is in standard path
+      // Return None to let the linker find it automatically
+      return None
+    }
+    // Fall back to common installation paths
+    // On macOS, prioritize based on architecture: x86_64 -> /usr/local first, arm64 -> /opt/homebrew first
+    val commonPaths = if (Properties.isMac && requiredArch.contains("x86_64"))
+      Seq(
+        "/usr/local/lib",    // macOS Intel Homebrew (for x86_64 on Apple Silicon)
+        "/opt/homebrew/lib", // macOS Homebrew (Apple Silicon)
+        "/usr/lib"           // Standard macOS path
+      )
+    else if (Properties.isMac && requiredArch.contains("arm64"))
+      Seq(
+        "/opt/homebrew/lib", // macOS Homebrew (Apple Silicon)
+        "/usr/local/lib",    // macOS Intel Homebrew
+        "/usr/lib"           // Standard macOS path
+      )
+    else
+      Seq(
+        "/opt/homebrew/lib",         // macOS Homebrew (Apple Silicon)
+        "/usr/local/lib",            // macOS/Linux local install
+        "/usr/lib/x86_64-linux-gnu", // Ubuntu/Debian 64-bit
+        "/usr/lib64",                // Some Linux distributions
+        "/usr/lib"                   // Standard Linux path
+      )
+    for (path <- commonPaths) {
+      val libPath = os.Path(path, os.pwd)
+      if (os.exists(libPath)) {
+        // Check if libsodium exists in this directory
+        val sodiumLib = os.list(libPath).find(_.last.startsWith("libsodium"))
+        if (sodiumLib.isDefined)
+          // Check architecture compatibility if required
+          if (requiredArch.isEmpty || checkLibraryArchitecture(libPath, requiredArch.get))
+            return Some(path)
+      }
+    }
+    None
+  }
+
+  def unixLinkingLibPaths = T {
+    // Default: try to find library without architecture requirement
+    // Architecture-specific filtering will happen in generateUnixSo
+    val libDir = unixLibSodiumLibDir()
+    // If libDir is None, library is in standard path and linker will find it automatically
+    super.unixLinkingLibPaths() ++ libDir.toSeq
+  }
+
+  // Architecture-specific library path lookup
+  private def unixLibSodiumLibDirForArch(arch: String): Option[String] =
+    unixLibSodiumLibDir(Some(arch))
+
+  override protected def checkLibraryArchitectureForPath(
+    libPath: os.Path,
+    requiredArch: String
+  ): Boolean =
+    checkLibraryArchitecture(libPath, requiredArch)
+
+  private def unixLibSodiumIncludeDir(): String = {
+    // Try pkg-config first
+    val pkgConfigResult = os.proc("pkg-config", "--cflags", "libsodium").call(
+      cwd = os.pwd,
+      check = false,
+      stderr = os.Pipe
+    )
+    if (pkgConfigResult.exitCode == 0) {
+      val output = pkgConfigResult.out.trim()
+      // Extract -I path from pkg-config output (e.g., "-I/opt/homebrew/include")
+      val includePath = output.split(" ").find(_.startsWith("-I")).map(_.drop(2))
+      if (includePath.isDefined && os.exists(os.Path(includePath.get, os.pwd)))
+        return includePath.get
+    }
+    // Fall back to common installation paths
+    val commonPaths = Seq(
+      "/opt/homebrew/include", // macOS Homebrew (Apple Silicon)
+      "/usr/local/include",    // macOS/Linux local install
+      "/usr/include"           // Standard Linux path
+    )
+    for (path <- commonPaths) {
+      val headerPath = os.Path(path, os.pwd) / "sodium.h"
+      if (os.exists(headerPath))
+        return path
+    }
+    val osName     = if (Properties.isMac) "macOS" else "Linux"
+    val installCmd =
+      if (Properties.isMac) "brew install libsodium" else "sudo apt-get install libsodium-dev"
+    sys.error(
+      s"libsodium headers not found on $osName. Please install libsodium (e.g., '$installCmd')"
+    )
+  }
+
+  def extraUnixCOptions = T {
+    val includeDir = unixLibSodiumIncludeDir()
+    Seq(s"-I$includeDir")
+  }
+
+  def unixCOptions = T {
+    super.unixCOptions() ++ extraUnixCOptions()
+  }
+
   private def windowsLibSodiumDistDir(): os.Path = {
     val archiveCache = ArchiveCache()
-    archiveCache.get(Artifact("https://download.libsodium.org/libsodium/releases/libsodium-1.0.18-stable-msvc.zip")).unsafeRun()(archiveCache.cache.ec) match {
-      case Left(e) => throw new Exception(e)
+    archiveCache.get(
+      Artifact("https://download.libsodium.org/libsodium/releases/libsodium-1.0.21-stable-msvc.zip")
+    ).unsafeRun()(archiveCache.cache.ec) match {
+      case Left(e)     => throw new Exception(e)
       case Right(dir0) => os.Path(dir0, os.pwd)
     }
   }
@@ -39,11 +192,12 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
     super.windowsLinkingLibs() ++ Seq(lib.toString)
   }
   def extraWindowsCOptions = T {
-    val dir = windowsLibSodiumDistDir()
+    val dir       = windowsLibSodiumDistDir()
     val headerDir = dir / "libsodium" / "include"
     Seq(
       "/D__WIN__",
-      "/I", headerDir.toString
+      "/I",
+      headerDir.toString
     )
   }
   def windowsDllCOptions = T {
@@ -57,8 +211,8 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
   }
   def windowsBatInit = T {
     import java.util.Locale
-    val dir = windowsLibSodiumDistDir()
-    val dllDir = dir / "libsodium" / "x64" / "Release" / "v143" / "dynamic"
+    val dir            = windowsLibSodiumDistDir()
+    val dllDir         = dir / "libsodium" / "x64" / "Release" / "v143" / "dynamic"
     val pathEnvVarName = sys.env.find(_._1.toLowerCase(Locale.ROOT) == "path").fold("PATH")(_._1)
     "@echo on" + System.lineSeparator() +
       super.windowsBatInit() + System.lineSeparator() +
@@ -103,11 +257,11 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
     )
   )
 
-  object test extends Tests {
-    def ivyDeps = super.ivyDeps() ++ Seq(
+  object test extends MavenModuleTests with TestModule.Junit4 {
+    override def ivyDeps = super.ivyDeps() ++ Seq(
       ivy"com.novocode:junit-interface:0.11"
     )
-    def testFramework = "com.novocode.junit.JUnitFramework"
+    override def testFramework = "com.novocode.junit.JUnitFramework"
   }
 }
 

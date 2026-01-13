@@ -10,7 +10,7 @@ private lazy val vcvarsCandidates = Option(System.getenv("VCVARSALL")) ++ {
     version <- vcVersions
     edition <- vcEditions
     vsDir   <- vsDirs
-  } yield vsDir + "\\" + version + "\\" + edition + """\VC\Auxiliary\Build\vcvars64.bat"""
+  } yield vsDir.toString + "\\" + version + "\\" + edition + """\VC\Auxiliary\Build\vcvars64.bat"""
 }
 
 private def vcvarsOpt: Option[os.Path] =
@@ -18,7 +18,7 @@ private def vcvarsOpt: Option[os.Path] =
     .iterator
     .map(os.Path(_, os.pwd))
     .filter(os.exists(_))
-    .toStream
+    .to(LazyList)
     .headOption
 
 lazy val vcvars = vcvarsOpt.getOrElse {

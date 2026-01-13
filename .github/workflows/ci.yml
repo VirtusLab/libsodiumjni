@@ -12,7 +12,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest, macos-15-intel]
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: mac-aarch64
+          - os: macos-15-intel
+            platform: mac-intel
     runs-on: ${{ matrix.os }}
     steps:
     - name: Checkout
@@ -20,13 +29,27 @@ jobs:
       with:
         fetch-depth: 0
         submodules: true
-    - uses: coursier/cache-action@v6.3
-    - uses: coursier/setup-action@v1.2.0-M3
+    - uses: coursier/cache-action@v7
+    - uses: VirtusLab/scala-cli-setup@v1
       with:
         jvm: zulu:17
     - name: Install libsodium (Linux)
       if: runner.os == 'Linux'
       run: sudo apt-get install -y libsodium-dev
+    - name: Install libsodium (macOS ARM64)
+      if: matrix.os == 'macos-latest' && matrix.platform == 'mac-aarch64'
+      run: |
+        # Install ARM64 libsodium (for ARM64 builds) - already available via system Homebrew
+        brew install libsodium
+        
+        # Install Intel Homebrew under Rosetta for x86_64 libraries
+        # This installs to /usr/local (Intel) vs /opt/homebrew (Apple Silicon)
+        if [ ! -f /usr/local/bin/brew ]; then
+          arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        fi
+        
+        # Install libsodium via Intel Homebrew (installs x86_64 libraries to /usr/local)
+        arch -x86_64 /usr/local/bin/brew install libsodium
     - name: Run tests
       run: ./mill -i __.test
     - name: Build and publish locally
@@ -36,44 +59,15 @@ jobs:
       run: find ~/.ivy2/local | sort
     - name: Copy artifacts
       run: ./mill -i __.jniCopyFilesTo artifacts/
-    - uses: actions/upload-artifact@v2.2.4
+    - uses: actions/upload-artifact@v6
       with:
-        name: artifacts
+        name: artifacts-${{ matrix.platform }}
         path: artifacts/
         if-no-files-found: error
         retention-days: 2
 
-  test-m1:
-    runs-on: ARM64
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: true
-      - uses: coursier/cache-action@v6.3
-      - uses: coursier/setup-action@f883d08305acbc28e5e5363bf5ec086397627021
-        with:
-          apps: ""
-          jvm: "https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-22.1.0/graalvm-ce-java17-darwin-aarch64-22.1.0.tar.gz"
-      - name: Run tests
-        run: ./mill -i __.test
-      - name: Build and publish locally
-        run: ./mill -i __.publishLocal
-      - name: List published files
-        shell: bash
-        run: find ~/.ivy2/local | sort
-      - name: Copy artifacts
-        run: ./mill -i __.jniCopyFilesTo artifacts/
-      - uses: actions/upload-artifact@v2.2.4
-        with:
-          name: artifacts
-          path: artifacts/
-          if-no-files-found: error
-          retention-days: 2
-
   release:
-    needs: [test,test-m1]
+    needs: test
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     steps:
@@ -82,16 +76,28 @@ jobs:
         with:
           fetch-depth: 0
           submodules: true
-      - uses: coursier/cache-action@v6.3
-      - uses: coursier/setup-action@v1.2.0-M3
+      - uses: coursier/cache-action@v7
+      - uses: VirtusLab/scala-cli-setup@v1
         with:
           jvm: zulu:17
       - name: Install libsodium (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get install -y libsodium-dev
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v7
         with:
-          name: artifacts
+          name: artifacts-linux
+          path: artifacts/
+      - uses: actions/download-artifact@v7
+        with:
+          name: artifacts-windows
+          path: artifacts/
+      - uses: actions/download-artifact@v7
+        with:
+          name: artifacts-mac-intel
+          path: artifacts/
+      - uses: actions/download-artifact@v7
+        with:
+          name: artifacts-mac-aarch64
           path: artifacts/
       - run: .github/scripts/gpg-setup.sh
         shell: bash
