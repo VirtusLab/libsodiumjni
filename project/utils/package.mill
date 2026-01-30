@@ -1,3 +1,7 @@
+package build.project.utils
+
+import mill.api.BuildCtx
+
 def toCrLfOpt(content: Array[Byte]): Option[Array[Byte]] = {
   val cr      = '\r'.toByte
   val lf      = '\n'.toByte
@@ -41,4 +45,4 @@ def toCrLfOpt(content: Array[Byte]): Option[Array[Byte]] = {
   }
 }
 def isArmArchitecture: Boolean =
-  os.proc("uname", "-p").call(cwd = os.pwd).out.trim() == "arm"
+  os.proc("uname", "-p").call(cwd = BuildCtx.workspaceRoot).out.trim() == "arm"

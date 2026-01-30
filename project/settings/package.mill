@@ -1,15 +1,19 @@
-import java.util.Arrays
-import $file.visualstudioutil, visualstudioutil.vcvars
-import $file.util, util.toCrLfOpt, util.isArmArchitecture
+package build.project.settings
 
-import mill._, scalalib._
+import java.util.Arrays
+import build.project.visualstudioutil.vcvars
+import build.project.utils.{toCrLfOpt, isArmArchitecture}
+import mill._
+import mill.api.BuildCtx
+import mill.scalalib._
 import mill.scalalib.publish.PublishInfo
+import mill.scalalib.SonatypeCentralPublishModule
 
 import scala.util.Properties
 
 trait GenerateHeaders extends JavaModule {
   def cDirectory = T {
-    millSourcePath / "src" / "main" / "c"
+    moduleDir / "src" / "main" / "c"
   }
   def javacOptions = T {
     val dest = cDirectory()
@@ -77,7 +81,7 @@ trait JniUploadDownloadArtifacts extends JniWindowsModule with JniUnixPublish {
 
   def jniCopyFilesTo(dest: String = "artifacts/") = T.command {
     val toCopy0      = jniFilesToCopy()
-    val destDir      = os.Path(dest, os.pwd)
+    val destDir      = os.Path(dest, BuildCtx.workspaceRoot)
     val libraryName0 = jniLibraryName()
     val classifier   = jniClassifier()
 
@@ -115,7 +119,7 @@ trait JniResourcesModule extends JniUploadDownloadArtifacts with JniWindowsAddRe
             case "aarch64-apple-darwin" => "arm-darwin"
             case "x86_64-pc-linux"      => "linux64"
             case "x86_64-pc-win32"      => "windows64"
-            case other                  => sys.error(s"Unrecognized classifier: $classifier")
+            case other                  => sys.error(s"Unrecognized classifier: $other")
           }
           val ext  = name.drop(idx + 1)
           val dest = destDir / "META-INF" / "native" / osName / s"$libraryName0.$ext"
@@ -129,7 +133,8 @@ trait JniResourcesModule extends JniUploadDownloadArtifacts with JniWindowsAddRe
   }
 }
 
-trait JniPublishModule extends PublishModule with JniUploadDownloadArtifacts with JniWindowsPublish
+trait JniPublishModule extends SonatypeCentralPublishModule with JniUploadDownloadArtifacts
+    with JniWindowsPublish
     with JniUnixPublish {
   def jniArtifactDirExtraPublish = T {
     val libraryName0 = jniLibraryName()
@@ -177,14 +182,14 @@ trait JniWindowsModule extends Module {
   def windowsLinkingLibs = T(Seq.empty[String])
 
   def windowsJavaHome = T {
-    val dir = os.Path(sys.props("java.home"), os.pwd)
+    val dir = os.Path(sys.props("java.home"), BuildCtx.workspaceRoot)
     // Seems required with Java 8
     if (dir.last == "jre") dir / os.up
     else dir
   }
 
   def windowsCSources = T.sources {
-    Seq(PathRef(millSourcePath / "src" / "main" / "c"))
+    Seq(PathRef(moduleDir / "src" / "main" / "c"))
   }
 
   def windowsDllCOptions = T(Seq.empty[String])
@@ -210,7 +215,7 @@ trait JniWindowsModule extends Module {
     for (f <- cFiles) yield {
       if (!os.exists(destDir))
         os.makeDir.all(destDir)
-      val path        = f.relativeTo(os.pwd).toString
+      val path        = f.relativeTo(BuildCtx.workspaceRoot).toString
       val output      = destDir / s"${f.last.stripSuffix(".c")}.obj"
       val needsUpdate = !os.isFile(output) || os.mtime(output) < os.mtime(f)
       if (needsUpdate) {
@@ -251,13 +256,13 @@ trait JniWindowsModule extends Module {
 
   def windowsDll = T.persistent {
     val dllName0 = windowsDllName()
-    val destDir  = T.ctx().dest / "dlls"
+    val destDir  = T.dest / "dlls"
     if (!os.exists(destDir))
       os.makeDir.all(destDir)
     val dest        = destDir / s"$dllName0.dll"
-    val relDest     = dest.relativeTo(os.pwd)
+    val relDest     = dest.relativeTo(BuildCtx.workspaceRoot)
     val objs        = windowsDllCompile()
-    val objsArgs    = objs.map(o => o.path.relativeTo(os.pwd).toString).distinct
+    val objsArgs    = objs.map(o => o.path.relativeTo(BuildCtx.workspaceRoot).toString).distinct
     val libsArgs    = windowsLinkingLibs().map(l => l + ".lib")
     val needsUpdate = !os.isFile(dest) || {
       val destMtime = os.mtime(dest)
@@ -303,7 +308,7 @@ trait JniWindowsModule extends Module {
 trait JniWindowsAddResources extends JavaModule with JniWindowsModule {
   def windowsResources = T.sources {
     val dll0        = windowsDll().path
-    val dir         = T.ctx().dest / "dll-resources"
+    val dir         = T.dest / "dll-resources"
     val dllDir      = dir / "META-INF" / "native" / "windows64"
     val dest        = dllDir / dll0.last
     val needsUpdate = !os.isFile(dest) || {
@@ -350,7 +355,7 @@ trait JniUnixModule extends Module {
   def unixLibName: T[String]
 
   def unixCSources = T.sources {
-    val mainDir = millSourcePath / "src" / "main" / "c"
+    val mainDir = moduleDir / "src" / "main" / "c"
     val isEmpty = !os.isDir(mainDir) || os.walk.stream(mainDir).filter(
       _.last.endsWith(".c")
     ).filter(os.isFile(_)).headOption.isEmpty
@@ -373,7 +378,7 @@ trait JniUnixModule extends Module {
   def unixLinkingLibPaths = T(Seq.empty[String])
 
   // Helper method to check if a library path contains architecture-compatible libraries
-  // This can be overridden in build.sc to provide architecture checking
+  // This can be overridden in build.mill to provide architecture checking
   protected def checkLibraryArchitectureForPath(libPath: os.Path, requiredArch: String): Boolean =
     // Default implementation: assume compatibility (can be overridden)
     true
@@ -417,11 +422,11 @@ trait JniUnixModule extends Module {
     for (f <- cFiles) yield {
       if (!os.exists(destDir))
         os.makeDir.all(destDir)
-      val path        = f.relativeTo(os.pwd).toString
+      val path        = f.relativeTo(BuildCtx.workspaceRoot).toString
       val output      = destDir / s"${f.last.stripSuffix(".c")}.o"
       val needsUpdate = !os.isFile(output) || os.mtime(output) < os.mtime(f)
       if (needsUpdate) {
-        val relOutput = output.relativeTo(os.pwd)
+        val relOutput = output.relativeTo(BuildCtx.workspaceRoot)
         val command   = gcc0 ++ Seq(
           "-c",
           "-Wall",
@@ -432,17 +437,22 @@ trait JniUnixModule extends Module {
         System.err.println(s"Running ${command.mkString(" ")}")
         val res = os
           .proc(command.map(x => x: os.Shellable): _*)
-          .call(stdin = os.Inherit, stdout = os.Inherit, stderr = os.Inherit)
+          .call(
+            cwd = BuildCtx.workspaceRoot,
+            stdin = os.Inherit,
+            stdout = os.Inherit,
+            stderr = os.Inherit
+          )
         if (res.exitCode != 0)
           sys.error(s"${gcc0.mkString(" ")} command exited with code ${res.exitCode}")
       }
-      PathRef(output.resolveFrom(os.pwd))
+      PathRef(output.resolveFrom(BuildCtx.workspaceRoot))
     }
   }
 
   def unixCompile =
     T.persistent {
-      val destDir    = T.ctx().dest / "obj"
+      val destDir    = T.dest / "obj"
       val javaHome0  = unixJavaHome()
       val gcc0       = unixGcc()
       val extraOpts  = unixCOptions()
@@ -459,7 +469,7 @@ trait JniUnixModule extends Module {
 
   def macosX86_64Compile =
     T.persistent {
-      val destDir    = T.ctx().dest / "obj"
+      val destDir    = T.dest / "obj"
       val javaHome0  = unixJavaHome()
       val gcc0       = unixGcc()
       val extraOpts  = unixCOptions() ++ Seq("-arch", "x86_64")
@@ -476,7 +486,7 @@ trait JniUnixModule extends Module {
 
   def macosArm64Compile =
     T.persistent {
-      val destDir    = T.ctx().dest / "obj"
+      val destDir    = T.dest / "obj"
       val javaHome0  = unixJavaHome()
       val gcc0       = unixGcc()
       val extraOpts  = unixCOptions() ++ Seq("-arch", "arm64")
@@ -504,8 +514,8 @@ trait JniUnixModule extends Module {
     if (!os.exists(destDir))
       os.makeDir.all(destDir)
     val dest     = destDir / s"$dllName0.$unixExtension0"
-    val relDest  = dest.relativeTo(os.pwd)
-    val objsArgs = objs.map(o => o.path.relativeTo(os.pwd).toString).distinct
+    val relDest  = dest.relativeTo(BuildCtx.workspaceRoot)
+    val objsArgs = objs.map(o => o.path.relativeTo(BuildCtx.workspaceRoot).toString).distinct
     // Extract architecture from extraOpts (e.g., "-arch", "x86_64" or "-arch", "arm64")
     val archOpt = extraOpts.zipWithIndex.find(_._1 == "-arch").map(_._2 + 1).flatMap { idx =>
       if (idx < extraOpts.length) Some(extraOpts(idx)) else None
@@ -514,7 +524,7 @@ trait JniUnixModule extends Module {
     val filteredLibPaths = if (Properties.isMac && archOpt.isDefined) {
       val arch = archOpt.get
       unixLinkingLibPaths.filter { libPath =>
-        val path = os.Path(libPath, os.pwd)
+        val path = os.Path(libPath, BuildCtx.workspaceRoot)
         // Check if library supports the required architecture
         checkLibraryArchitectureForPath(path, arch)
       }
@@ -536,7 +546,12 @@ trait JniUnixModule extends Module {
       System.err.println(s"Running ${command.mkString(" ")}")
       val res = os
         .proc(command.map(x => x: os.Shellable): _*)
-        .call(stdin = os.Inherit, stdout = os.Inherit, stderr = os.Inherit)
+        .call(
+          cwd = BuildCtx.workspaceRoot,
+          stdin = os.Inherit,
+          stdout = os.Inherit,
+          stderr = os.Inherit
+        )
       if (res.exitCode != 0)
         sys.error(s"${gcc0.mkString(" ")} command exited with code ${res.exitCode}")
     }
@@ -605,8 +620,8 @@ trait JniUnixModule extends Module {
     if (!os.exists(destDir))
       os.makeDir.all(destDir)
     val dest        = destDir / s"$dllName0.a"
-    val relDest     = dest.relativeTo(os.pwd)
-    val objsArgs    = objs.map(o => o.path.relativeTo(os.pwd).toString).distinct
+    val relDest     = dest.relativeTo(BuildCtx.workspaceRoot)
+    val objsArgs    = objs.map(o => o.path.relativeTo(BuildCtx.workspaceRoot).toString).distinct
     val needsUpdate = !os.isFile(dest) || {
       val destMtime = os.mtime(dest)
       objs.exists(o => os.mtime(o.path) > destMtime)
@@ -616,7 +631,12 @@ trait JniUnixModule extends Module {
       System.err.println(s"Running ${command.mkString(" ")}")
       val res = os
         .proc(command.map(x => x: os.Shellable): _*)
-        .call(stdin = os.Inherit, stdout = os.Inherit, stderr = os.Inherit)
+        .call(
+          cwd = BuildCtx.workspaceRoot,
+          stdin = os.Inherit,
+          stdout = os.Inherit,
+          stderr = os.Inherit
+        )
       if (res.exitCode != 0)
         sys.error(s"${command.mkString(" ")} exited with code ${res.exitCode}")
     }
@@ -626,7 +646,7 @@ trait JniUnixModule extends Module {
     if (Properties.isMac)
       T.persistent {
         val dllName0 = unixLibName()
-        val destDir  = T.ctx().dest / "libs"
+        val destDir  = T.dest / "libs"
         val archA    = if (isArmArchitecture) {
           val armObjs = macosArm64Compile()
           buildUnixA(
@@ -648,7 +668,7 @@ trait JniUnixModule extends Module {
     else
       T.persistent {
         val dllName0 = unixLibName()
-        val destDir  = T.ctx().dest / "libs"
+        val destDir  = T.dest / "libs"
         val objs     = unixCompile()
         buildUnixA(
           dllName0,
@@ -661,7 +681,7 @@ trait JniUnixModule extends Module {
 trait JniUnixAddResources extends JavaModule with JniUnixModule {
   def unixResources = T.sources {
     val dll0   = unixSo().path
-    val dir    = T.ctx().dest / "so-resources"
+    val dir    = T.dest / "so-resources"
     val osName = osDirName() match {
       case "linux" => "linux64"
       case other   => other

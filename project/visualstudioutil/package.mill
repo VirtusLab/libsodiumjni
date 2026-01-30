@@ -1,3 +1,6 @@
+package build.project.visualstudioutil
+
+import mill.api.BuildCtx
 
 private def vcVersions = Seq("2022", "2019", "2017")
 private def vcEditions = Seq("Enterprise", "Community", "BuildTools")
@@ -16,7 +19,7 @@ private lazy val vcvarsCandidates = Option(System.getenv("VCVARSALL")) ++ {
 private def vcvarsOpt: Option[os.Path] =
   vcvarsCandidates
     .iterator
-    .map(os.Path(_, os.pwd))
+    .map(os.Path(_, BuildCtx.workspaceRoot))
     .filter(os.exists(_))
     .to(LazyList)
     .headOption
