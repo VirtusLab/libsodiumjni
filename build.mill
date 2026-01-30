@@ -1,4 +1,8 @@
-import $file.settings, settings.{GenerateHeaders, JniModule, JniPublishModule, JniResourcesModule}
+package build
+
+import $packages._
+
+import build.project.settings.{GenerateHeaders, JniModule, JniPublishModule, JniResourcesModule}
 
 import coursier.cache.ArchiveCache
 import coursier.util.Artifact
@@ -27,13 +31,13 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
   private def checkLibraryArchitecture(libPath: os.Path, requiredArch: String): Boolean = {
     if (!Properties.isMac) return true // On Linux, assume compatibility
     if (!os.exists(libPath)) return false
-    
+
     // Check if library supports the required architecture using lipo or file
     val dylibPath = if (libPath.last.endsWith(".dylib")) libPath
-                    else libPath / "libsodium.dylib"
-    
+    else libPath / "libsodium.dylib"
+
     if (!os.exists(dylibPath)) return false
-    
+
     // Use lipo to check architectures (macOS only)
     val lipoResult = os.proc("lipo", "-info", dylibPath.toString).call(
       cwd = os.pwd,
@@ -44,10 +48,10 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
       val output = lipoResult.out.trim()
       // Check if it's a universal binary or contains the required architecture
       output.contains(requiredArch) || output.contains("universal")
-    } else {
+    }
+    else
       // Fallback: if lipo fails, assume it's compatible (might be a symlink or static lib)
       true
-    }
   }
 
   private def unixLibSodiumLibDir(requiredArch: Option[String] = None): Option[String] = {
@@ -63,11 +67,10 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
       val libPath = output.split(" ").find(_.startsWith("-L")).map(_.drop(2))
       if (libPath.isDefined) {
         val path = os.Path(libPath.get, os.pwd)
-        if (os.exists(path)) {
+        if (os.exists(path))
           // Check architecture compatibility if required
           if (requiredArch.isEmpty || checkLibraryArchitecture(path, requiredArch.get))
             return Some(libPath.get)
-        }
       }
       // If pkg-config succeeds but no -L flag, library is in standard path
       // Return None to let the linker find it automatically
@@ -75,37 +78,35 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
     }
     // Fall back to common installation paths
     // On macOS, prioritize based on architecture: x86_64 -> /usr/local first, arm64 -> /opt/homebrew first
-    val commonPaths = if (Properties.isMac && requiredArch.contains("x86_64")) {
+    val commonPaths = if (Properties.isMac && requiredArch.contains("x86_64"))
       Seq(
-        "/usr/local/lib",               // macOS Intel Homebrew (for x86_64 on Apple Silicon)
-        "/opt/homebrew/lib",            // macOS Homebrew (Apple Silicon)
-        "/usr/lib"                      // Standard macOS path
+        "/usr/local/lib",    // macOS Intel Homebrew (for x86_64 on Apple Silicon)
+        "/opt/homebrew/lib", // macOS Homebrew (Apple Silicon)
+        "/usr/lib"           // Standard macOS path
       )
-    } else if (Properties.isMac && requiredArch.contains("arm64")) {
+    else if (Properties.isMac && requiredArch.contains("arm64"))
       Seq(
-        "/opt/homebrew/lib",            // macOS Homebrew (Apple Silicon)
-        "/usr/local/lib",                // macOS Intel Homebrew
-        "/usr/lib"                       // Standard macOS path
+        "/opt/homebrew/lib", // macOS Homebrew (Apple Silicon)
+        "/usr/local/lib",    // macOS Intel Homebrew
+        "/usr/lib"           // Standard macOS path
       )
-    } else {
+    else
       Seq(
-        "/opt/homebrew/lib",            // macOS Homebrew (Apple Silicon)
-        "/usr/local/lib",                // macOS/Linux local install
-        "/usr/lib/x86_64-linux-gnu",    // Ubuntu/Debian 64-bit
-        "/usr/lib64",                    // Some Linux distributions
-        "/usr/lib"                       // Standard Linux path
+        "/opt/homebrew/lib",         // macOS Homebrew (Apple Silicon)
+        "/usr/local/lib",            // macOS/Linux local install
+        "/usr/lib/x86_64-linux-gnu", // Ubuntu/Debian 64-bit
+        "/usr/lib64",                // Some Linux distributions
+        "/usr/lib"                   // Standard Linux path
       )
-    }
     for (path <- commonPaths) {
       val libPath = os.Path(path, os.pwd)
       if (os.exists(libPath)) {
         // Check if libsodium exists in this directory
         val sodiumLib = os.list(libPath).find(_.last.startsWith("libsodium"))
-        if (sodiumLib.isDefined) {
+        if (sodiumLib.isDefined)
           // Check architecture compatibility if required
           if (requiredArch.isEmpty || checkLibraryArchitecture(libPath, requiredArch.get))
             return Some(path)
-        }
       }
     }
     None
@@ -133,17 +134,18 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
     }
     // Fall back to common installation paths
     val commonPaths = Seq(
-      "/opt/homebrew/include",        // macOS Homebrew (Apple Silicon)
-      "/usr/local/include",           // macOS/Linux local install
-      "/usr/include"                  // Standard Linux path
+      "/opt/homebrew/include", // macOS Homebrew (Apple Silicon)
+      "/usr/local/include",    // macOS/Linux local install
+      "/usr/include"           // Standard Linux path
     )
     for (path <- commonPaths) {
       val headerPath = os.Path(path, os.pwd) / "sodium.h"
       if (os.exists(headerPath))
         return path
     }
-    val osName = if (Properties.isMac) "macOS" else "Linux"
-    val installCmd = if (Properties.isMac) "brew install libsodium" else "sudo apt-get install libsodium-dev"
+    val osName     = if (Properties.isMac) "macOS" else "Linux"
+    val installCmd =
+      if (Properties.isMac) "brew install libsodium" else "sudo apt-get install libsodium-dev"
     sys.error(
       s"libsodium headers not found on $osName. Please install libsodium (e.g., '$installCmd')"
     )
@@ -206,14 +208,16 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
     else Some(os.Path("artifacts/", os.pwd))
 
   def publishVersion = T {
-    val wd = BuildCtx.workspaceRoot
+    val wd                                    = BuildCtx.workspaceRoot
     def runGit(args: String*): Option[String] =
       os.proc("git" +: args).call(cwd = wd, check = false, stderr = os.Pipe).out.trim() match {
         case s if s.nonEmpty => Some(s)
         case _               => None
       }
     val lastTag = runGit("describe", "--tags", "--abbrev=0")
-      .orElse(runGit("tag", "-l", "--sort=-version:refname").flatMap(s => s.split("\n").headOption.filter(_.nonEmpty)))
+      .orElse(runGit("tag", "-l", "--sort=-version:refname").flatMap(s =>
+        s.split("\n").headOption.filter(_.nonEmpty)
+      ))
     val commitsSince = lastTag.fold(0) { tag =>
       runGit("rev-list", "--count", s"$tag..HEAD").fold(0)(_.toInt)
     }
@@ -268,7 +272,9 @@ def publishSonatype(tasks: mill.main.Tasks[PublishModule.PublishData]) =
       pgpPassword = pgpPassword,
       data = data,
       timeout = timeout,
-      log = T.ctx().log
+      log = T.ctx().log,
+      workspace = BuildCtx.workspaceRoot,
+      env = T.env
     )
   }
 
@@ -277,7 +283,9 @@ def doPublishSonatype(
   pgpPassword: String,
   data: Seq[PublishModule.PublishData],
   timeout: Duration,
-  log: mill.api.Logger
+  log: mill.api.Logger,
+  workspace: os.Path,
+  env: Map[String, String]
 ): Unit = {
 
   val artifacts = data.map {
@@ -313,6 +321,8 @@ def doPublishSonatype(
     readTimeout = timeout.toMillis.toInt,
     connectTimeout = timeout.toMillis.toInt,
     log = log,
+    workspace = workspace,
+    env = env,
     awaitTimeout = timeout.toMillis.toInt,
     stagingRelease = isRelease
   )
