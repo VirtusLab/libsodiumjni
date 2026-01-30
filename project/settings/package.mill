@@ -7,6 +7,7 @@ import mill._
 import mill.api.BuildCtx
 import mill.scalalib._
 import mill.scalalib.publish.PublishInfo
+import mill.scalalib.SonatypeCentralPublishModule
 
 import scala.util.Properties
 
@@ -132,7 +133,8 @@ trait JniResourcesModule extends JniUploadDownloadArtifacts with JniWindowsAddRe
   }
 }
 
-trait JniPublishModule extends PublishModule with JniUploadDownloadArtifacts with JniWindowsPublish
+trait JniPublishModule extends SonatypeCentralPublishModule with JniUploadDownloadArtifacts
+    with JniWindowsPublish
     with JniUnixPublish {
   def jniArtifactDirExtraPublish = T {
     val libraryName0 = jniLibraryName()
