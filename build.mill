@@ -255,7 +255,7 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
 
   object test extends libsodiumjni.MavenTests {
     def ivyDeps = super.ivyDeps() ++ Seq(
-      mvn"com.novocode:junit-interface:0.11"
+      mvn"com.github.sbt:junit-interface:0.13.3"
     )
     def testFramework = "com.novocode.junit.JUnitFramework"
   }
