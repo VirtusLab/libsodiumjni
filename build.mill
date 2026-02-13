@@ -19,8 +19,8 @@ import scala.util.Properties
 object libsodiumjni extends MavenModule with JniModule with JniPublishModule with JniResourcesModule
     with GenerateHeaders {
   def ivyDeps = super.ivyDeps() ++ Seq(
-    mvn"net.java.dev.jna:jna:5.12.1",
-    mvn"net.java.dev.jna:jna-platform:5.12.1"
+    mvn"net.java.dev.jna:jna:5.18.1",
+    mvn"net.java.dev.jna:jna-platform:5.18.1"
   )
 
   def windowsDllName = "libsodiumjni"
