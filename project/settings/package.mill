@@ -224,7 +224,8 @@ trait JniWindowsModule extends Module {
           s"""@call "$vcvars"
              |if %errorlevel% neq 0 exit /b %errorlevel%
              |$windowsBatInit
-             |cl /I $q${javaHome0 / "include"}$q /I $q${javaHome0 / "include" / "win32"}$q /utf-8 $userOptions /c $q$f$q
+             |cl /I $q${javaHome0 / "include"}$q /I $q${javaHome0 / "include" /
+              "win32"}$q /utf-8 $userOptions /c $q$f$q
              |""".stripMargin
         val scriptPath = dest / "run-cl.bat"
         os.write.over(scriptPath, script.getBytes, createFolders = true)
