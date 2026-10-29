@@ -1,92 +1,88 @@
+//| mill-jvm-version: system|17
 package build
-
-import $packages._
 
 import build.project.settings.{GenerateHeaders, JniModule, JniPublishModule, JniResourcesModule}
 
 import coursier.cache.ArchiveCache
 import coursier.util.Artifact
-import mill._
+import mill.*
 import mill.api.BuildCtx
-import mill.scalalib._
-import mill.scalalib.publish._
-import mill.scalalib.SonatypeCentralPublisher
-import com.lumidion.sonatype.central.client.core.{PublishingType, SonatypeCredentials}
+import mill.javalib.*
+import mill.javalib.publish.*
+import mill.javalib.SonatypeCentralPublisher
+import mill.util.Tasks
 
 import scala.concurrent.duration.Duration
 import scala.util.Properties
 
 object libsodiumjni extends MavenModule with JniModule with JniPublishModule with JniResourcesModule
-    with GenerateHeaders {
-  def ivyDeps = super.ivyDeps() ++ Seq(
+    with GenerateHeaders:
+  def mvnDeps = super.mvnDeps() ++ Seq(
     mvn"net.java.dev.jna:jna:5.19.1",
     mvn"net.java.dev.jna:jna-platform:5.19.1"
   )
 
-  def windowsDllName = "libsodiumjni"
-  def unixLibName    = "libsodiumjni"
+  def windowsDllName = Task("libsodiumjni")
+  def unixLibName    = Task("libsodiumjni")
 
-  def unixLinkingLibs = T {
+  def unixLinkingLibs = Task {
     super.unixLinkingLibs() ++ Seq("sodium")
   }
 
-  private def checkLibraryArchitecture(libPath: os.Path, requiredArch: String): Boolean = {
-    if (!Properties.isMac) return true // On Linux, assume compatibility
-    if (!os.exists(libPath)) return false
+  private def checkLibraryArchitecture(libPath: os.Path, requiredArch: String): Boolean =
+    if !Properties.isMac then return true // On Linux, assume compatibility
+    if !os.exists(libPath) then return false
 
     // Check if library supports the required architecture using lipo or file
-    val dylibPath = if (libPath.last.endsWith(".dylib")) libPath
-    else libPath / "libsodium.dylib"
+    val dylibPath =
+      if libPath.last.endsWith(".dylib") then libPath
+      else libPath / "libsodium.dylib"
 
-    if (!os.exists(dylibPath)) return false
+    if !os.exists(dylibPath) then return false
 
     // Use lipo to check architectures (macOS only)
     val lipoResult = os.proc("lipo", "-info", dylibPath.toString).call(
-      cwd = os.pwd,
+      cwd = BuildCtx.workspaceRoot,
       check = false,
       stderr = os.Pipe
     )
-    if (lipoResult.exitCode == 0) {
+    if lipoResult.exitCode == 0 then
       val output = lipoResult.out.trim()
       // Check if it's a universal binary or contains the required architecture
       output.contains(requiredArch) || output.contains("universal")
-    }
     else
       // Fallback: if lipo fails, assume it's compatible (might be a symlink or static lib)
       true
-  }
 
-  private def unixLibSodiumLibDir(requiredArch: Option[String] = None): Option[String] = {
+  private def unixLibSodiumLibDir(requiredArch: Option[String] = None): Option[String] =
     // Try pkg-config first
     val pkgConfigResult = os.proc("pkg-config", "--libs", "libsodium").call(
-      cwd = os.pwd,
+      cwd = BuildCtx.workspaceRoot,
       check = false,
       stderr = os.Pipe
     )
-    if (pkgConfigResult.exitCode == 0) {
+    if pkgConfigResult.exitCode == 0 then
       val output = pkgConfigResult.out.trim()
       // Extract -L path from pkg-config output (e.g., "-L/opt/homebrew/lib")
       val libPath = output.split(" ").find(_.startsWith("-L")).map(_.drop(2))
-      if (libPath.isDefined) {
-        val path = os.Path(libPath.get, os.pwd)
-        if (os.exists(path))
+      if libPath.isDefined then
+        val path = os.Path(libPath.get, BuildCtx.workspaceRoot)
+        if os.exists(path) then
           // Check architecture compatibility if required
-          if (requiredArch.isEmpty || checkLibraryArchitecture(path, requiredArch.get))
+          if requiredArch.isEmpty || checkLibraryArchitecture(path, requiredArch.get) then
             return Some(libPath.get)
-      }
       // If pkg-config succeeds but no -L flag, library is in standard path
       // Return None to let the linker find it automatically
       return None
-    }
     // Fall back to common installation paths
     // On macOS, prioritize based on architecture: x86_64 -> /usr/local first, arm64 -> /opt/homebrew first
-    val commonPaths = if (Properties.isMac && requiredArch.contains("x86_64"))
+    val commonPaths = if Properties.isMac && requiredArch.contains("x86_64") then
       Seq(
         "/usr/local/lib",    // macOS Intel Homebrew (for x86_64 on Apple Silicon)
         "/opt/homebrew/lib", // macOS Homebrew (Apple Silicon)
         "/usr/lib"           // Standard macOS path
       )
-    else if (Properties.isMac && requiredArch.contains("arm64"))
+    else if Properties.isMac && requiredArch.contains("arm64") then
       Seq(
         "/opt/homebrew/lib", // macOS Homebrew (Apple Silicon)
         "/usr/local/lib",    // macOS Intel Homebrew
@@ -100,84 +96,71 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
         "/usr/lib64",                // Some Linux distributions
         "/usr/lib"                   // Standard Linux path
       )
-    for (path <- commonPaths) {
-      val libPath = os.Path(path, os.pwd)
-      if (os.exists(libPath)) {
-        // Check if libsodium exists in this directory
-        val sodiumLib = os.list(libPath).find(_.last.startsWith("libsodium"))
-        if (sodiumLib.isDefined)
-          // Check architecture compatibility if required
-          if (requiredArch.isEmpty || checkLibraryArchitecture(libPath, requiredArch.get))
-            return Some(path)
-      }
+    commonPaths.find { path =>
+      val libPath = os.Path(path)
+      // Check if libsodium exists in this directory
+      os.exists(libPath) && os.list(libPath).exists(_.last.startsWith("libsodium")) &&
+      // Check architecture compatibility if required
+      (requiredArch.isEmpty || checkLibraryArchitecture(libPath, requiredArch.get))
     }
-    None
-  }
 
-  def unixLinkingLibPaths = T {
+  def unixLinkingLibPaths = Task {
     val libDir = unixLibSodiumLibDir()
     // If libDir is None, library is in standard path and linker will find it automatically
     super.unixLinkingLibPaths() ++ libDir.toSeq
   }
 
-  private def unixLibSodiumIncludeDir(): String = {
+  private def unixLibSodiumIncludeDir(): String =
     // Try pkg-config first
     val pkgConfigResult = os.proc("pkg-config", "--cflags", "libsodium").call(
-      cwd = os.pwd,
+      cwd = BuildCtx.workspaceRoot,
       check = false,
       stderr = os.Pipe
     )
-    if (pkgConfigResult.exitCode == 0) {
+    if pkgConfigResult.exitCode == 0 then
       val output = pkgConfigResult.out.trim()
       // Extract -I path from pkg-config output (e.g., "-I/opt/homebrew/include")
       val includePath = output.split(" ").find(_.startsWith("-I")).map(_.drop(2))
-      if (includePath.isDefined && os.exists(os.Path(includePath.get, os.pwd)))
+      if includePath.isDefined && os.exists(os.Path(includePath.get, BuildCtx.workspaceRoot)) then
         return includePath.get
-    }
     // Fall back to common installation paths
     val commonPaths = Seq(
       "/opt/homebrew/include", // macOS Homebrew (Apple Silicon)
       "/usr/local/include",    // macOS/Linux local install
       "/usr/include"           // Standard Linux path
     )
-    for (path <- commonPaths) {
-      val headerPath = os.Path(path, os.pwd) / "sodium.h"
-      if (os.exists(headerPath))
-        return path
+    commonPaths.find(path => os.exists(os.Path(path) / "sodium.h")).getOrElse {
+      val osName     = if Properties.isMac then "macOS" else "Linux"
+      val installCmd =
+        if Properties.isMac then "brew install libsodium" else "sudo apt-get install libsodium-dev"
+      sys.error(
+        s"libsodium headers not found on $osName. Please install libsodium (e.g., '$installCmd')"
+      )
     }
-    val osName     = if (Properties.isMac) "macOS" else "Linux"
-    val installCmd =
-      if (Properties.isMac) "brew install libsodium" else "sudo apt-get install libsodium-dev"
-    sys.error(
-      s"libsodium headers not found on $osName. Please install libsodium (e.g., '$installCmd')"
-    )
-  }
 
-  def extraUnixCOptions = T {
+  def extraUnixCOptions = Task {
     val includeDir = unixLibSodiumIncludeDir()
     Seq(s"-I$includeDir")
   }
 
-  def unixCOptions = T {
+  def unixCOptions = Task {
     super.unixCOptions() ++ extraUnixCOptions()
   }
 
-  private def windowsLibSodiumDistDir(): os.Path = {
+  private def windowsLibSodiumDistDir(): os.Path =
     val archiveCache = ArchiveCache()
     archiveCache.get(
       Artifact("https://download.libsodium.org/libsodium/releases/libsodium-1.0.21-stable-msvc.zip")
-    ).unsafeRun()(archiveCache.cache.ec) match {
+    ).unsafeRun()(using archiveCache.cache.ec) match
       case Left(e)     => throw new Exception(e)
-      case Right(dir0) => os.Path(dir0, os.pwd)
-    }
-  }
+      case Right(dir0) => os.Path(dir0, BuildCtx.workspaceRoot)
 
-  def windowsLinkingLibs = T {
+  def windowsLinkingLibs = Task {
     val dir = windowsLibSodiumDistDir()
     val lib = dir / "libsodium" / "x64" / "Release" / "v143" / "dynamic" / "libsodium"
     super.windowsLinkingLibs() ++ Seq(lib.toString)
   }
-  def extraWindowsCOptions = T {
+  def extraWindowsCOptions = Task {
     val dir       = windowsLibSodiumDistDir()
     val headerDir = dir / "libsodium" / "include"
     Seq(
@@ -186,16 +169,16 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
       headerDir.toString
     )
   }
-  def windowsDllCOptions = T {
+  def windowsDllCOptions = Task {
     super.windowsDllCOptions() ++
       extraWindowsCOptions()
   }
-  def windowsLibCOptions = T {
+  def windowsLibCOptions = Task {
     super.windowsLibCOptions() ++
       extraWindowsCOptions() ++
       Seq("/DSODIUM_STATIC")
   }
-  def windowsBatInit = T {
+  def windowsBatInit = Task {
     import java.util.Locale
     val dir            = windowsLibSodiumDistDir()
     val dllDir         = dir / "libsodium" / "x64" / "Release" / "v143" / "dynamic"
@@ -205,17 +188,16 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
       s"""set "$pathEnvVarName=$dllDir;%$pathEnvVarName%""""
   }
 
-  def jniArtifactDir =
-    if (System.getenv("CI") == null) None
-    else Some(os.Path("artifacts/", os.pwd))
+  def jniArtifactDir = Task.Input {
+    Task.env.get("CI").map(_ => PathRef(BuildCtx.workspaceRoot / "artifacts"))
+  }
 
-  def publishVersion = T {
+  def publishVersion = Task {
     val wd                                    = BuildCtx.workspaceRoot
     def runGit(args: String*): Option[String] =
-      os.proc("git" +: args).call(cwd = wd, check = false, stderr = os.Pipe).out.trim() match {
+      os.proc("git" +: args).call(cwd = wd, check = false, stderr = os.Pipe).out.trim() match
         case s if s.nonEmpty => Some(s)
         case _               => None
-      }
     val lastTag = runGit("describe", "--tags", "--abbrev=0")
       .orElse(runGit("tag", "-l", "--sort=-version:refname").flatMap(s =>
         s.split("\n").headOption.filter(_.nonEmpty)
@@ -223,21 +205,21 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
     val commitsSince = lastTag.fold(0) { tag =>
       runGit("rev-list", "--count", s"$tag..HEAD").fold(0)(_.toInt)
     }
-    if (commitsSince > 0) {
+    if commitsSince > 0 then
       val versionOrEmpty = lastTag
         .map(_.stripPrefix("v"))
         .map { tag =>
           val idx = tag.lastIndexOf(".")
-          if (idx >= 0) tag.take(idx + 1) +
-            (tag.drop(idx + 1).takeWhile(
-              _.isDigit
-            ).toInt + 1).toString + "-SNAPSHOT"
+          if idx >= 0 then
+            tag.take(idx + 1) +
+              (tag.drop(idx + 1).takeWhile(
+                _.isDigit
+              ).toInt + 1).toString + "-SNAPSHOT"
           else ""
         }
         .getOrElse("0.0.1-SNAPSHOT")
-      if (versionOrEmpty.nonEmpty) versionOrEmpty
+      if versionOrEmpty.nonEmpty then versionOrEmpty
       else runGit("describe", "--tags", "--always").getOrElse("0.0.1-SNAPSHOT")
-    }
     else
       lastTag
         .getOrElse(runGit("describe", "--tags", "--always").getOrElse("0.0.0"))
@@ -254,20 +236,18 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
     )
   )
 
-  object test extends libsodiumjni.MavenTests {
-    def ivyDeps = super.ivyDeps() ++ Seq(
+  object test extends libsodiumjni.MavenTests:
+    def mvnDeps = super.mvnDeps() ++ Seq(
       mvn"com.github.sbt:junit-interface:0.13.3"
     )
     def testFramework = "com.novocode.junit.JUnitFramework"
-  }
-}
 
-def publishSonatype(tasks: mill.main.Tasks[PublishModule.PublishData]) =
-  T.command {
+def publishSonatype(tasks: Tasks[PublishModule.PublishData]) =
+  Task.Command {
     import scala.concurrent.duration.DurationInt
     val timeout     = 10.minutes
     val pgpPassword = sys.env("PGP_PASSWORD")
-    val data        = T.sequence(tasks.value)()
+    val data        = Task.sequence(tasks.value)()
 
     doPublishSonatype(
       username = sys.env("SONATYPE_USERNAME"),
@@ -275,9 +255,9 @@ def publishSonatype(tasks: mill.main.Tasks[PublishModule.PublishData]) =
       pgpPassword = pgpPassword,
       data = data,
       timeout = timeout,
-      log = T.ctx().log,
+      log = Task.log,
       workspace = BuildCtx.workspaceRoot,
-      env = T.env
+      env = Task.env
     )
   }
 
@@ -290,14 +270,13 @@ def doPublishSonatype(
   log: mill.api.Logger,
   workspace: os.Path,
   env: Map[String, String]
-): Unit = {
+): Unit =
 
-  val artifacts = data.map {
-    case PublishModule.PublishData(a, s) =>
-      (s.map { case (p, f) => (p.path, f) }, a)
+  val artifacts = data.map { d =>
+    (d.payloadAsMap.map((subPath, ref) => subPath -> ref.path), d.meta)
   }
 
-  val isRelease = {
+  val isRelease =
     val versions = artifacts.map(_._2.version).toSet
     val set      = versions.map(!_.endsWith("-SNAPSHOT"))
     assert(
@@ -305,7 +284,6 @@ def doPublishSonatype(
       s"Found both snapshot and non-snapshot versions: ${versions.toVector.sorted.mkString(", ")}"
     )
     set.head
-  }
 
   // Sonatype Central Portal (replaces deprecated SonatypePublisher / Nexus)
   val creds     = SonatypeCredentials(username = username, password = password)
@@ -330,11 +308,10 @@ def doPublishSonatype(
     awaitTimeout = timeout.toMillis.toInt
   )
   val publishingType =
-    if (isRelease) PublishingType.AUTOMATIC
+    if isRelease then PublishingType.AUTOMATIC
     else PublishingType.USER_MANAGED
   publisher.publishAll(
     publishingType = publishingType,
     singleBundleName = None,
-    artifacts = artifacts: _*
+    artifacts = artifacts*
   )
-}

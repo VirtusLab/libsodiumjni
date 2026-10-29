@@ -2,7 +2,7 @@ package build.project.utils
 
 import mill.api.BuildCtx
 
-def toCrLfOpt(content: Array[Byte]): Option[Array[Byte]] = {
+def toCrLfOpt(content: Array[Byte]): Option[Array[Byte]] =
   val cr      = '\r'.toByte
   val lf      = '\n'.toByte
   val indices = content
@@ -12,14 +12,14 @@ def toCrLfOpt(content: Array[Byte]): Option[Array[Byte]] = {
       case (`lf`, idx) if idx > 0 && content(idx - 1) != cr => idx
     }
     .toVector
-  if (indices.isEmpty)
+  if indices.isEmpty then
     None
-  else {
+  else
     val updatedContent = Array.ofDim[Byte](content.length + indices.length)
     var i              = 0 // content index
     var j              = 0 // updatedContent index
     var n              = 0 // indices index
-    while (n < indices.length) {
+    while n < indices.length do
       val idx = indices(n)
 
       System.arraycopy(content, i, updatedContent, j, idx - i)
@@ -32,7 +32,6 @@ def toCrLfOpt(content: Array[Byte]): Option[Array[Byte]] = {
       j += 2
 
       n += 1
-    }
 
     val idx = content.length
     System.arraycopy(content, i, updatedContent, j, content.length - i)
@@ -42,7 +41,5 @@ def toCrLfOpt(content: Array[Byte]): Option[Array[Byte]] = {
     assert(i == content.length)
     assert(j == updatedContent.length)
     Some(updatedContent)
-  }
-}
 def isArmArchitecture: Boolean =
   os.proc("uname", "-p").call(cwd = BuildCtx.workspaceRoot).out.trim() == "arm"

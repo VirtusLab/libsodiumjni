@@ -1,8 +1,13 @@
 @echo off
 
+rem Mill Build Tool: https://github.com/com-lihaoyi/mill
+rem Download: https://repo1.maven.org/maven2/com/lihaoyi/mill-dist/1.3.1/mill-dist-1.3.1-mill.bat
+rem Documentation: https://mill-build.org/mill/cli/installation-ide.html#_bootstrap_scripts
+rem Script Version: 1.3.1
+
 setlocal enabledelayedexpansion
 
-if [!DEFAULT_MILL_VERSION!]==[] ( set "DEFAULT_MILL_VERSION=1.1.0-RC3" )
+if [!DEFAULT_MILL_VERSION!]==[] ( set "DEFAULT_MILL_VERSION=1.3.1" )
 
 if [!MILL_GITHUB_RELEASE_CDN!]==[] ( set "MILL_GITHUB_RELEASE_CDN=" )
 
@@ -276,12 +281,8 @@ if [%~1%]==[--bsp] (
         if [%~1%]==[--no-daemon] (
           set MILL_FIRST_ARG=%1%
         ) else (
-          if [%~1%]==[--repl] (
+          if [%~1%]==[--help] (
             set MILL_FIRST_ARG=%1%
-          ) else (
-            if [%~1%]==[--help] (
-              set MILL_FIRST_ARG=%1%
-            )
           )
         )
       )
