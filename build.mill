@@ -228,9 +228,10 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
         .map(_.stripPrefix("v"))
         .map { tag =>
           val idx = tag.lastIndexOf(".")
-          if (idx >= 0) tag.take(idx + 1) + (tag.drop(idx + 1).takeWhile(
-            _.isDigit
-          ).toInt + 1).toString + "-SNAPSHOT"
+          if (idx >= 0) tag.take(idx + 1) +
+            (tag.drop(idx + 1).takeWhile(
+              _.isDigit
+            ).toInt + 1).toString + "-SNAPSHOT"
           else ""
         }
         .getOrElse("0.0.1-SNAPSHOT")
