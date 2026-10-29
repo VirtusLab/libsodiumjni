@@ -4,14 +4,14 @@ import mill.api.BuildCtx
 
 private def vcVersions = Seq("18", "2022", "2019", "2017")
 private def vcEditions = Seq("Enterprise", "Community", "BuildTools")
-private def vsDirs = Seq(
+private def vsDirs     = Seq(
   os.Path("""C:\Program Files\Microsoft Visual Studio"""),
   os.Path("""C:\Program Files (x86)\Microsoft Visual Studio""")
 )
-private def vswhereVcvars: Option[String] = {
+private def vswhereVcvars: Option[String] =
   val vswhere =
     os.Path("""C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe""")
-  if (os.exists(vswhere)) {
+  if os.exists(vswhere) then
     val res = os.proc(
       vswhere,
       "-latest",
@@ -23,19 +23,17 @@ private def vswhereVcvars: Option[String] = {
       "installationPath"
     ).call(check = false, stderr = os.Pipe)
     val installPath = res.out.trim()
-    if (res.exitCode == 0 && installPath.nonEmpty)
+    if res.exitCode == 0 && installPath.nonEmpty then
       Some(installPath + """\VC\Auxiliary\Build\vcvars64.bat""")
     else None
-  }
   else None
-}
 
 private lazy val vcvarsCandidates = Option(System.getenv("VCVARSALL")) ++ vswhereVcvars ++ {
-  for {
+  for
     version <- vcVersions
     edition <- vcEditions
     vsDir   <- vsDirs
-  } yield vsDir.toString + "\\" + version + "\\" + edition + """\VC\Auxiliary\Build\vcvars64.bat"""
+  yield vsDir.toString + "\\" + version + "\\" + edition + """\VC\Auxiliary\Build\vcvars64.bat"""
 }
 
 private def vcvarsOpt: Option[os.Path] =
@@ -47,5 +45,7 @@ private def vcvarsOpt: Option[os.Path] =
     .headOption
 
 lazy val vcvars = vcvarsOpt.getOrElse {
-  sys.error("vcvars64.bat not found. Ensure Visual Studio is installed, or put the vcvars64.bat path in VCVARSALL.")
+  sys.error(
+    "vcvars64.bat not found. Ensure Visual Studio is installed, or put the vcvars64.bat path in VCVARSALL."
+  )
 }
