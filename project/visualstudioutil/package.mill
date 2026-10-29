@@ -2,13 +2,35 @@ package build.project.visualstudioutil
 
 import mill.api.BuildCtx
 
-private def vcVersions = Seq("2022", "2019", "2017")
+private def vcVersions = Seq("18", "2022", "2019", "2017")
 private def vcEditions = Seq("Enterprise", "Community", "BuildTools")
 private def vsDirs = Seq(
   os.Path("""C:\Program Files\Microsoft Visual Studio"""),
   os.Path("""C:\Program Files (x86)\Microsoft Visual Studio""")
 )
-private lazy val vcvarsCandidates = Option(System.getenv("VCVARSALL")) ++ {
+private def vswhereVcvars: Option[String] = {
+  val vswhere =
+    os.Path("""C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe""")
+  if (os.exists(vswhere)) {
+    val res = os.proc(
+      vswhere,
+      "-latest",
+      "-products",
+      "*",
+      "-requires",
+      "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+      "-property",
+      "installationPath"
+    ).call(check = false, stderr = os.Pipe)
+    val installPath = res.out.trim()
+    if (res.exitCode == 0 && installPath.nonEmpty)
+      Some(installPath + """\VC\Auxiliary\Build\vcvars64.bat""")
+    else None
+  }
+  else None
+}
+
+private lazy val vcvarsCandidates = Option(System.getenv("VCVARSALL")) ++ vswhereVcvars ++ {
   for {
     version <- vcVersions
     edition <- vcEditions
