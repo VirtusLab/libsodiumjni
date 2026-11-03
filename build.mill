@@ -2,6 +2,7 @@
 package build
 
 import build.project.settings.{GenerateHeaders, JniModule, JniPublishModule, JniResourcesModule}
+import build.project.utils.isArmArchitecture
 
 import coursier.cache.ArchiveCache
 import coursier.util.Artifact
@@ -26,8 +27,43 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
   def unixLibName    = Task("libsodiumjni")
 
   def unixLinkingLibs = Task {
-    super.unixLinkingLibs() ++ Seq("sodium")
+    // On macOS, libsodium is linked statically (see unixLinkingArgs)
+    if Properties.isMac then super.unixLinkingLibs()
+    else super.unixLinkingLibs() ++ Seq("sodium")
   }
+
+  // On macOS, -lsodium makes the dylib reference libsodium by its absolute install name
+  // (e.g. /opt/homebrew/opt/libsodium/lib/libsodium.26.dylib), which only exists on machines
+  // with Homebrew's libsodium. Linking the static archive makes the dylib self-contained.
+  def unixLinkingArgs = Task {
+    if Properties.isMac then
+      val arch = if isArmArchitecture then "arm64" else "x86_64"
+      super.unixLinkingArgs() ++ Seq(macosLibSodiumStaticArchive(arch).toString)
+    else super.unixLinkingArgs()
+  }
+
+  private def macosLibSodiumStaticArchive(arch: String): os.Path =
+    val pkgConfigLibDir = os.proc("pkg-config", "--variable=libdir", "libsodium")
+      .call(cwd = BuildCtx.workspaceRoot, check = false, stderr = os.Pipe)
+    val pkgConfigDirs =
+      if pkgConfigLibDir.exitCode == 0 then
+        pkgConfigLibDir.out.trim().split("\\s+").toSeq.filter(_.nonEmpty)
+      else Nil
+    val commonDirs =
+      if arch == "x86_64" then Seq("/usr/local/opt/libsodium/lib", "/usr/local/lib")
+      else Seq("/opt/homebrew/opt/libsodium/lib", "/opt/homebrew/lib")
+    val candidates = (pkgConfigDirs ++ commonDirs).distinct
+      .map(dir => os.Path(dir, BuildCtx.workspaceRoot) / "libsodium.a")
+    def hasArch(archive: os.Path): Boolean =
+      val res = os.proc("lipo", "-info", archive.toString)
+        .call(cwd = BuildCtx.workspaceRoot, check = false, stderr = os.Pipe)
+      res.exitCode == 0 && res.out.trim().split("\\s+").contains(arch)
+    candidates.find(p => os.isFile(p) && hasArch(p)).getOrElse {
+      sys.error(
+        s"Static libsodium archive (libsodium.a) for $arch not found, looked at: " +
+          candidates.mkString(", ") + ". Please install libsodium (e.g. 'brew install libsodium')."
+      )
+    }
 
   private def checkLibraryArchitecture(libPath: os.Path, requiredArch: String): Boolean =
     if !Properties.isMac then return true // On Linux, assume compatibility

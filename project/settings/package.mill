@@ -353,6 +353,9 @@ trait JniUnixModule extends Module:
   def unixLinkingLibs     = Task(Seq.empty[String])
   def unixLinkingLibPaths = Task(Seq.empty[String])
 
+  /** Extra arguments passed as-is when linking the shared library (e.g. static archive paths) */
+  def unixLinkingArgs = Task(Seq.empty[String])
+
   // Helper method to check if a library path contains architecture-compatible libraries
   // This can be overridden in build.mill to provide architecture checking
   protected def checkLibraryArchitectureForPath(libPath: os.Path, requiredArch: String): Boolean =
@@ -482,6 +485,7 @@ trait JniUnixModule extends Module:
     destDir: os.Path,
     unixLinkingLibs: Seq[String],
     unixLinkingLibPaths: Seq[String],
+    unixLinkingArgs: Seq[String],
     gcc0: Seq[String]
   ) =
     if !os.exists(destDir) then
@@ -505,16 +509,21 @@ trait JniUnixModule extends Module:
       unixLinkingLibPaths
     val libPathsArgs = filteredLibPaths.map(l => "-L" + l)
     val libsArgs     = unixLinkingLibs.map(l => "-l" + l)
-    val needsUpdate  = !os.isFile(dest) || {
-      val destMtime = os.mtime(dest)
-      objs.exists(o => os.mtime(o.path) > destMtime)
-    }
+    val command      =
+      gcc0 ++ Seq("-shared") ++ extraOpts ++ Seq(
+        "-o",
+        relDest.toString
+      ) ++ objsArgs ++ unixLinkingArgs ++ libPathsArgs ++ libsArgs
+    // Remember the last link command, so that changing link options triggers a re-link
+    val commandFile = destDir / s"$dllName0.$unixExtension0.link-command"
+    val commandStr  = command.mkString("\n")
+    val needsUpdate = !os.isFile(dest) ||
+      !os.isFile(commandFile) ||
+      os.read(commandFile) != commandStr || {
+        val destMtime = os.mtime(dest)
+        objs.exists(o => os.mtime(o.path) > destMtime)
+      }
     if needsUpdate then
-      val command =
-        gcc0 ++ Seq("-shared") ++ extraOpts ++ Seq(
-          "-o",
-          relDest.toString
-        ) ++ objsArgs ++ libPathsArgs ++ libsArgs
       System.err.println(s"Running ${command.mkString(" ")}")
       val res = os
         .proc(command)
@@ -526,6 +535,7 @@ trait JniUnixModule extends Module:
         )
       if res.exitCode != 0 then
         sys.error(s"${gcc0.mkString(" ")} command exited with code ${res.exitCode}")
+      os.write.over(commandFile, commandStr)
     PathRef(dest)
   def unixSo =
     if Properties.isMac then
@@ -545,6 +555,7 @@ trait JniUnixModule extends Module:
             destDir / "arm64",
             unixLinkingLibs(),
             unixLinkingLibPaths(),
+            unixLinkingArgs(),
             gcc0
           )
           PathRef(armDyLib.path)
@@ -558,6 +569,7 @@ trait JniUnixModule extends Module:
             destDir / "x86_64",
             unixLinkingLibs(),
             unixLinkingLibPaths(),
+            unixLinkingArgs(),
             gcc0
           )
           PathRef(x86DyLib.path)
@@ -577,6 +589,7 @@ trait JniUnixModule extends Module:
           destDir,
           unixLinkingLibs(),
           unixLinkingLibPaths(),
+          unixLinkingArgs(),
           gcc0
         )
       }
