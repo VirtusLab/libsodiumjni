@@ -155,6 +155,9 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
       case Left(e)     => throw new Exception(e)
       case Right(dir0) => os.Path(dir0, BuildCtx.workspaceRoot)
 
+  private def windowsLibSodiumDllDir(): os.Path =
+    windowsLibSodiumDistDir() / "libsodium" / "x64" / "Release" / "v143" / "dynamic"
+
   def windowsLinkingLibs = Task {
     val dir = windowsLibSodiumDistDir()
     val lib = dir / "libsodium" / "x64" / "Release" / "v143" / "dynamic" / "libsodium"
@@ -180,8 +183,7 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
   }
   def windowsBatInit = Task {
     import java.util.Locale
-    val dir            = windowsLibSodiumDistDir()
-    val dllDir         = dir / "libsodium" / "x64" / "Release" / "v143" / "dynamic"
+    val dllDir         = windowsLibSodiumDllDir()
     val pathEnvVarName = sys.env.find(_._1.toLowerCase(Locale.ROOT) == "path").fold("PATH")(_._1)
     "@echo on" + System.lineSeparator() +
       super.windowsBatInit() + System.lineSeparator() +
@@ -241,6 +243,20 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
       mvn"com.github.sbt:junit-interface:0.13.3"
     )
     def testFramework = "com.novocode.junit.JUnitFramework"
+    def forkEnv       = Task {
+      val env = super.forkEnv()
+      if Properties.isWin then
+        // libsodiumjni.dll links dynamically against libsodium.dll, which must be on the PATH
+        import java.util.Locale
+        val pathKey = (env.keys ++ sys.env.keys)
+          .find(_.toLowerCase(Locale.ROOT) == "path")
+          .getOrElse("PATH")
+        val currentPath = env.get(pathKey).orElse(sys.env.get(pathKey))
+        val newPath     = (windowsLibSodiumDllDir().toString +: currentPath.toSeq)
+          .mkString(java.io.File.pathSeparator)
+        env + (pathKey -> newPath)
+      else env
+    }
 
 def publishSonatype(tasks: Tasks[PublishModule.PublishData]) =
   Task.Command {
