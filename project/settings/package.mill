@@ -401,18 +401,24 @@ trait JniUnixModule extends Module:
     for f <- cFiles yield
       if !os.exists(destDir) then
         os.makeDir.all(destDir)
-      val path        = f.relativeTo(BuildCtx.workspaceRoot).toString
-      val output      = destDir / s"${f.last.stripSuffix(".c")}.o"
-      val needsUpdate = !os.isFile(output) || os.mtime(output) < os.mtime(f)
+      val path      = f.relativeTo(BuildCtx.workspaceRoot).toString
+      val output    = destDir / s"${f.last.stripSuffix(".c")}.o"
+      val relOutput = output.relativeTo(BuildCtx.workspaceRoot)
+      val command   = gcc0 ++ Seq(
+        "-c",
+        "-Wall",
+        "-fPIC",
+        s"-I$javaHome0/include",
+        s"-I$javaHome0/include/$osDirName0"
+      ) ++ extraOpts ++ Seq(path, "-o", relOutput.toString)
+      // Remember the last compile command, so that changing compile options triggers a re-compile
+      val commandFile = destDir / s"${output.last}.compile-command"
+      val commandStr  = command.mkString("\n")
+      val needsUpdate = !os.isFile(output) ||
+        !os.isFile(commandFile) ||
+        os.read(commandFile) != commandStr ||
+        os.mtime(output) < os.mtime(f)
       if needsUpdate then
-        val relOutput = output.relativeTo(BuildCtx.workspaceRoot)
-        val command   = gcc0 ++ Seq(
-          "-c",
-          "-Wall",
-          "-fPIC",
-          s"-I$javaHome0/include",
-          s"-I$javaHome0/include/$osDirName0"
-        ) ++ extraOpts ++ Seq(path, "-o", relOutput.toString)
         System.err.println(s"Running ${command.mkString(" ")}")
         val res = os
           .proc(command)
@@ -424,6 +430,7 @@ trait JniUnixModule extends Module:
           )
         if res.exitCode != 0 then
           sys.error(s"${gcc0.mkString(" ")} command exited with code ${res.exitCode}")
+        os.write.over(commandFile, commandStr)
       PathRef(output.resolveFrom(BuildCtx.workspaceRoot))
 
   def unixCompile =

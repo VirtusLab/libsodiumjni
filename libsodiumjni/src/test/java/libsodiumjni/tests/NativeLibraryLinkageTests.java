@@ -64,6 +64,39 @@ public class NativeLibraryLinkageTests {
         }
     }
 
+    /**
+     * Oldest macOS version the dylib must load on. 11.0 is the first macOS release supporting Apple
+     * Silicon. Must match the deployment target in build.mill.
+     */
+    private static final int[] MACOS_DEPLOYMENT_TARGET = {11, 0};
+
+    @Test
+    public void macOsDylibTargetsOldMacOsVersions() throws Exception {
+        Assume.assumeTrue("macOS-only check", isMac());
+
+        Path dylib = extractResource(LoadLibrary.resourcePath(), ".dylib");
+        try {
+            String minOs = dylibMinOs(dylib);
+            assertTrue(
+                    "libsodiumjni.dylib requires macOS " + minOs + ", but it must load on macOS "
+                            + MACOS_DEPLOYMENT_TARGET[0] + "." + MACOS_DEPLOYMENT_TARGET[1]
+                            + " (set the deployment target when compiling it and libsodium)",
+                    compareVersions(minOs, MACOS_DEPLOYMENT_TARGET) <= 0);
+        } finally {
+            Files.deleteIfExists(dylib);
+        }
+    }
+
+    private static int compareVersions(String version, int[] other) {
+        String[] parts = version.split("\\.");
+        for (int i = 0; i < Math.max(parts.length, other.length); i++) {
+            int a = i < parts.length ? Integer.parseInt(parts[i]) : 0;
+            int b = i < other.length ? other[i] : 0;
+            if (a != b) return Integer.compare(a, b);
+        }
+        return 0;
+    }
+
     private static Path extractResource(String resourcePath, String suffix) throws IOException {
         URL url = NativeLibraryLinkageTests.class.getClassLoader().getResource(resourcePath);
         assertNotNull("Resource " + resourcePath + " not found", url);
@@ -74,13 +107,38 @@ public class NativeLibraryLinkageTests {
         return dest;
     }
 
-    /** Paths of the dylibs loaded by {@code lib}, as listed by {@code otool -l} (excludes its own ID). */
-    private static List<String> dylibDependencies(Path lib) throws IOException, InterruptedException {
+    private static String otoolLoadCommands(Path lib) throws IOException, InterruptedException {
         Process proc = new ProcessBuilder("otool", "-l", lib.toString())
                 .redirectErrorStream(true)
                 .start();
         String output = new String(proc.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         assertEquals("otool -l failed:\n" + output, 0, proc.waitFor());
+        return output;
+    }
+
+    /**
+     * Minimum macOS version of {@code lib}, from its LC_BUILD_VERSION ("minos") or, for older
+     * binaries, LC_VERSION_MIN_MACOSX ("version") load command.
+     */
+    private static String dylibMinOs(Path lib) throws IOException, InterruptedException {
+        String output = otoolLoadCommands(lib);
+        String cmd = null;
+        for (String rawLine : output.split("\n")) {
+            String line = rawLine.trim();
+            if (line.startsWith("cmd ")) {
+                cmd = line.substring("cmd ".length()).trim();
+            } else if ("LC_BUILD_VERSION".equals(cmd) && line.startsWith("minos ")) {
+                return line.substring("minos ".length()).trim();
+            } else if ("LC_VERSION_MIN_MACOSX".equals(cmd) && line.startsWith("version ")) {
+                return line.substring("version ".length()).trim();
+            }
+        }
+        throw new AssertionError("No minimum macOS version found in otool -l output for " + lib + ":\n" + output);
+    }
+
+    /** Paths of the dylibs loaded by {@code lib}, as listed by {@code otool -l} (excludes its own ID). */
+    private static List<String> dylibDependencies(Path lib) throws IOException, InterruptedException {
+        String output = otoolLoadCommands(lib);
 
         List<String> dependencies = new ArrayList<>();
         boolean inLoadDylibCommand = false;

@@ -27,7 +27,7 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
   def unixLibName    = Task("libsodiumjni")
 
   def unixLinkingLibs = Task {
-    // On macOS, libsodium is linked statically (see unixLinkingArgs)
+    // On macOS, libsodium is built from source and linked statically (see unixLinkingArgs)
     if Properties.isMac then super.unixLinkingLibs()
     else super.unixLinkingLibs() ++ Seq("sodium")
   }
@@ -36,34 +36,94 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
   // (e.g. /opt/homebrew/opt/libsodium/lib/libsodium.26.dylib), which only exists on machines
   // with Homebrew's libsodium. Linking the static archive makes the dylib self-contained.
   def unixLinkingArgs = Task {
-    if Properties.isMac then
-      val arch = if isArmArchitecture then "arm64" else "x86_64"
-      super.unixLinkingArgs() ++ Seq(macosLibSodiumStaticArchive(arch).toString)
-    else super.unixLinkingArgs()
-  }
-
-  private def macosLibSodiumStaticArchive(arch: String): os.Path =
-    val pkgConfigLibDir = os.proc("pkg-config", "--variable=libdir", "libsodium")
-      .call(cwd = BuildCtx.workspaceRoot, check = false, stderr = os.Pipe)
-    val pkgConfigDirs =
-      if pkgConfigLibDir.exitCode == 0 then
-        pkgConfigLibDir.out.trim().split("\\s+").toSeq.filter(_.nonEmpty)
-      else Nil
-    val commonDirs =
-      if arch == "x86_64" then Seq("/usr/local/opt/libsodium/lib", "/usr/local/lib")
-      else Seq("/opt/homebrew/opt/libsodium/lib", "/opt/homebrew/lib")
-    val candidates = (pkgConfigDirs ++ commonDirs).distinct
-      .map(dir => os.Path(dir, BuildCtx.workspaceRoot) / "libsodium.a")
-    def hasArch(archive: os.Path): Boolean =
-      val res = os.proc("lipo", "-info", archive.toString)
-        .call(cwd = BuildCtx.workspaceRoot, check = false, stderr = os.Pipe)
-      res.exitCode == 0 && res.out.trim().split("\\s+").contains(arch)
-    candidates.find(p => os.isFile(p) && hasArch(p)).getOrElse {
-      sys.error(
-        s"Static libsodium archive (libsodium.a) for $arch not found, looked at: " +
-          candidates.mkString(", ") + ". Please install libsodium (e.g. 'brew install libsodium')."
+    val libSodiumOpt = macosLibSodium()
+    super.unixLinkingArgs() ++ libSodiumOpt.toSeq.flatMap { libSodium =>
+      macosDeploymentTargetOptions ++ Seq(
+        // fail if any linked object targets a newer macOS version than macosDeploymentTarget
+        "-Wl,-fatal_warnings",
+        (libSodium.path / "lib" / "libsodium.a").toString
       )
     }
+  }
+
+  /**
+   * Oldest macOS version libsodiumjni.dylib loads on. 11.0 is the first macOS release supporting
+   * Apple Silicon. Keep in sync with NativeLibraryLinkageTests.
+   */
+  private def macosDeploymentTarget        = "11.0"
+  private def macosDeploymentTargetOptions = Seq(s"-mmacosx-version-min=$macosDeploymentTarget")
+
+  // Same version as the Windows build. The checksum matches both download.libsodium.org and the
+  // jedisct1/libsodium GitHub release asset.
+  private def libsodiumVersion          = "1.0.21"
+  private def libsodiumSourceTarballSha256 =
+    "9e4285c7a419e82dedb0be63a72eea357d6943bc3e28e6735bf600dd4883feaf"
+
+  /**
+   * On macOS, libsodium built from source as a static library, targeting macosDeploymentTarget.
+   * Pre-built static libraries (e.g. Homebrew's) target the macOS version they were built on, which
+   * would prevent libsodiumjni.dylib from loading on older macOS versions.
+   *
+   * Returns the installation prefix (with `include` and `lib` sub-directories).
+   */
+  def macosLibSodium = Task {
+    if !Properties.isMac then None
+    else
+      val arch    = if isArmArchitecture then "arm64" else "x86_64"
+      val tarball = downloadLibSodiumSources()
+
+      val srcDir = Task.dest / "src"
+      val prefix = Task.dest / "install"
+      os.makeDir.all(srcDir)
+      os.proc("tar", "-xzf", tarball, "-C", srcDir, "--strip-components=1")
+        .call(cwd = Task.dest)
+
+      val flags = s"-arch $arch ${macosDeploymentTargetOptions.mkString(" ")}"
+      val env   = Map(
+        "CFLAGS"                   -> s"-O3 $flags",
+        "LDFLAGS"                  -> flags,
+        "MACOSX_DEPLOYMENT_TARGET" -> macosDeploymentTarget
+      )
+      val log = Task.dest / "build.log"
+      def run(cmd: String*): Unit =
+        System.err.println(s"Running ${cmd.mkString(" ")} (output in $log)")
+        val res = os.proc(cmd).call(
+          cwd = srcDir,
+          env = env,
+          stdout = os.ProcessOutput.Readlines(line => os.write.append(log, line + "\n")),
+          mergeErrIntoOut = true,
+          check = false
+        )
+        if res.exitCode != 0 then
+          val tail = os.read.lines(log).takeRight(50).mkString(System.lineSeparator())
+          sys.error(s"${cmd.mkString(" ")} exited with code ${res.exitCode}, last lines:\n$tail")
+      run(
+        "./configure",
+        s"--prefix=$prefix",
+        "--disable-shared",
+        "--enable-static",
+        "--with-pic",
+        "--disable-dependency-tracking"
+      )
+      run("make", s"-j${Runtime.getRuntime.availableProcessors()}", "install")
+
+      Some(PathRef(prefix))
+  }
+
+  private def downloadLibSodiumSources(): os.Path =
+    val url   =
+      s"https://download.libsodium.org/libsodium/releases/libsodium-$libsodiumVersion.tar.gz"
+    val cache = coursier.cache.FileCache()
+    val file  = cache.file(Artifact(url)).run.unsafeRun()(using cache.ec) match
+      case Left(e)  => throw new Exception(e)
+      case Right(f) => os.Path(f, BuildCtx.workspaceRoot)
+    val digest = java.security.MessageDigest.getInstance("SHA-256").digest(os.read.bytes(file))
+    val sha256 = digest.map(b => f"$b%02x").mkString
+    if sha256 != libsodiumSourceTarballSha256 then
+      sys.error(
+        s"Unexpected SHA-256 for $url ($file): $sha256, expected $libsodiumSourceTarballSha256"
+      )
+    file
 
   private def checkLibraryArchitecture(libPath: os.Path, requiredArch: String): Boolean =
     if !Properties.isMac then return true // On Linux, assume compatibility
@@ -141,7 +201,8 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
     }
 
   def unixLinkingLibPaths = Task {
-    val libDir = unixLibSodiumLibDir()
+    // On macOS, libsodium is built from source and linked statically (see macosLibSodium)
+    val libDir = if Properties.isMac then None else unixLibSodiumLibDir()
     // If libDir is None, library is in standard path and linker will find it automatically
     super.unixLinkingLibPaths() ++ libDir.toSeq
   }
@@ -175,12 +236,15 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
     }
 
   def extraUnixCOptions = Task {
-    val includeDir = unixLibSodiumIncludeDir()
+    val includeDir = macosLibSodium() match
+      case Some(libSodium) => (libSodium.path / "include").toString
+      case None            => unixLibSodiumIncludeDir()
     Seq(s"-I$includeDir")
   }
 
   def unixCOptions = Task {
-    super.unixCOptions() ++ extraUnixCOptions()
+    super.unixCOptions() ++ extraUnixCOptions() ++
+      (if Properties.isMac then macosDeploymentTargetOptions else Nil)
   }
 
   private def windowsLibSodiumDistDir(): os.Path =
