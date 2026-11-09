@@ -1,7 +1,5 @@
 package build.project.utils
 
-import mill.api.BuildCtx
-
 import java.util.Locale
 
 def toCrLfOpt(content: Array[Byte]): Option[Array[Byte]] =
@@ -43,15 +41,22 @@ def toCrLfOpt(content: Array[Byte]): Option[Array[Byte]] =
     assert(i == content.length)
     assert(j == updatedContent.length)
     Some(updatedContent)
-def isArmArchitecture: Boolean =
-  os.proc("uname", "-p").call(cwd = BuildCtx.workspaceRoot).out.trim() == "arm"
-
-/** CPU architecture of the Linux build machine, as "x86_64" or "aarch64" */
-def linuxArch: String =
+/**
+ * CPU architecture the native libraries are built for, as "x86_64" or "aarch64".
+ *
+ * That's the architecture of the JVM running the build, as given by its "os.arch" property, like
+ * libsodiumjni.internal.LoadLibrary.resourcePath() at runtime, so that the tests of a build load
+ * the library it just built. (On macOS, under Rosetta, the JVM and the processes it starts are
+ * x86_64.)
+ */
+def hostArch: String =
   sys.props("os.arch").toLowerCase(Locale.ROOT) match
     case "amd64" | "x86_64"  => "x86_64"
     case "aarch64" | "arm64" => "aarch64"
-    case other               => sys.error(s"Unsupported architecture on Linux: $other")
+    case other               => sys.error(s"Unsupported architecture: $other")
+
+def isArmArchitecture: Boolean =
+  hostArch == "aarch64"
 
 /**
  * Directory, under META-INF/native in the JAR, of the native library with the passed classifier.

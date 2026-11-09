@@ -41,26 +41,47 @@ public final class LoadLibrary {
 
     /** Resource path of the native library for the passed OS name and architecture (as in the "os.name" and "os.arch" Java properties) */
     public static String resourcePath(String osName0, String osArch0) {
-        String osArch = osArch0.toLowerCase(Locale.ROOT);
-        boolean isArmArch = osArch.contains("aarch64");
+        // "x86_64", "aarch64", or null if unsupported
+        String arch;
+        switch (osArch0.toLowerCase(Locale.ROOT)) {
+            case "amd64":
+            case "x86_64":
+                arch = "x86_64";
+                break;
+            case "aarch64":
+            case "arm64":
+                arch = "aarch64";
+                break;
+            default:
+                arch = null;
+        }
 
         String osName = osName0.toLowerCase(Locale.ROOT);
+        String dir;
+        String os;
         if (osName.contains("linux")) {
-            switch (osArch) {
-                case "amd64":
-                case "x86_64":
-                    return "META-INF/native/linux64/libsodiumjni.so";
-                case "aarch64":
-                    return "META-INF/native/linux-aarch64/libsodiumjni.so";
-                default:
-                    throw new RuntimeException("Unsupported architecture on Linux: " + osArch0);
-            }
+            os = "Linux";
+            dir = "x86_64".equals(arch) ? "linux64/libsodiumjni.so"
+                    : "aarch64".equals(arch) ? "linux-aarch64/libsodiumjni.so"
+                    : null;
         }
-        else if (osName.contains("mac") && isArmArch) return "META-INF/native/arm-darwin/libsodiumjni.dylib";
-        else if (osName.contains("mac")) return "META-INF/native/darwin/libsodiumjni.dylib";
-        else if (osName.contains("windows")) return "META-INF/native/windows64/libsodiumjni.dll";
+        else if (osName.contains("mac")) {
+            os = "macOS";
+            dir = "x86_64".equals(arch) ? "darwin/libsodiumjni.dylib"
+                    : "aarch64".equals(arch) ? "arm-darwin/libsodiumjni.dylib"
+                    : null;
+        }
+        else if (osName.contains("windows")) {
+            os = "Windows";
+            dir = "x86_64".equals(arch) ? "windows64/libsodiumjni.dll" : null;
+        }
         else
           throw new RuntimeException("Unrecognized or unsupported OS: " + osName);
+
+        // Rather than falling back to another architecture's library, which can only fail to load
+        if (dir == null)
+            throw new RuntimeException("Unsupported architecture on " + os + ": " + osArch0);
+        return "META-INF/native/" + dir;
     }
 
     public static String libSuffix() {

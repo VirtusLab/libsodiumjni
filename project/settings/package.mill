@@ -2,7 +2,7 @@ package build.project.settings
 
 import java.util.Arrays
 import build.project.visualstudioutil.vcvars
-import build.project.utils.{isArmArchitecture, linuxArch, nativeResourceDir, toCrLfOpt}
+import build.project.utils.{hostArch, isArmArchitecture, nativeResourceDir, toCrLfOpt}
 import mill.*
 import mill.api.BuildCtx
 import mill.javalib.*
@@ -374,7 +374,7 @@ trait JniUnixModule extends Module:
     if Properties.isMac then
       if isArmArchitecture then "aarch64-apple-darwin"
       else "x86_64-apple-darwin"
-    else if Properties.isLinux then s"$linuxArch-pc-linux"
+    else if Properties.isLinux then s"$hostArch-pc-linux"
     else sys.error("Unrecognized OS")
   }
 
