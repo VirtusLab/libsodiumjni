@@ -29,7 +29,15 @@ public final class Sodium {
         return new KeyPair(pubKey, secKey);
     }
 
+    private static void checkKeyLength(String name, byte[] key, int expectedLength) {
+        if (key.length != expectedLength) {
+            throw new IllegalArgumentException(
+                    "Invalid " + name + " length (" + key.length + ", expected " + expectedLength + ")");
+        }
+    }
+
     public static byte[] seal(byte[] message, byte[] pubKey) {
+        checkKeyLength("public key", pubKey, SodiumApi.crypto_box_public_key_bytes());
         byte[] cipher = new byte[SodiumApi.crypto_box_seal_bytes() + message.length];
         int res = SodiumApi.crypto_box_seal(cipher, message, message.length, pubKey);
         if (res != 0) {
@@ -39,6 +47,8 @@ public final class Sodium {
     }
 
     public static byte[] sealOpen(byte[] cipher, byte[] pubKey, byte[] secretKey) {
+        checkKeyLength("public key", pubKey, SodiumApi.crypto_box_public_key_bytes());
+        checkKeyLength("secret key", secretKey, SodiumApi.crypto_box_secret_key_bytes());
         if (cipher.length < SodiumApi.crypto_box_seal_bytes()) {
             throw new RuntimeException(
                     "Invalid encrypted message length (" + cipher.length + ", should be > " + SodiumApi.crypto_box_seal_bytes() + ")");
