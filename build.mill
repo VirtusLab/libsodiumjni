@@ -2,6 +2,7 @@
 package build
 
 import build.project.settings.{GenerateHeaders, JniModule, JniPublishModule, JniResourcesModule}
+import build.project.publish.{computePublishVersion, gitCommitsSince, gitLastTag}
 import build.project.utils.isArmArchitecture
 
 import coursier.cache.ArchiveCache
@@ -291,38 +292,10 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
     Task.env.get("CI").map(_ => PathRef(BuildCtx.workspaceRoot / "artifacts"))
   }
 
-  def publishVersion = Task {
-    val wd                                    = BuildCtx.workspaceRoot
-    def runGit(args: String*): Option[String] =
-      os.proc("git" +: args).call(cwd = wd, check = false, stderr = os.Pipe).out.trim() match
-        case s if s.nonEmpty => Some(s)
-        case _               => None
-    val lastTag = runGit("describe", "--tags", "--abbrev=0")
-      .orElse(runGit("tag", "-l", "--sort=-version:refname").flatMap(s =>
-        s.split("\n").headOption.filter(_.nonEmpty)
-      ))
-    val commitsSince = lastTag.fold(0) { tag =>
-      runGit("rev-list", "--count", s"$tag..HEAD").fold(0)(_.toInt)
-    }
-    if commitsSince > 0 then
-      val versionOrEmpty = lastTag
-        .map(_.stripPrefix("v"))
-        .map { tag =>
-          val idx = tag.lastIndexOf(".")
-          if idx >= 0 then
-            tag.take(idx + 1) +
-              (tag.drop(idx + 1).takeWhile(
-                _.isDigit
-              ).toInt + 1).toString + "-SNAPSHOT"
-          else ""
-        }
-        .getOrElse("0.0.1-SNAPSHOT")
-      if versionOrEmpty.nonEmpty then versionOrEmpty
-      else runGit("describe", "--tags", "--always").getOrElse("0.0.1-SNAPSHOT")
-    else
-      lastTag
-        .getOrElse(runGit("describe", "--tags", "--always").getOrElse("0.0.0"))
-        .stripPrefix("v")
+  // Task.Input: re-computed on every run, as it depends on the git state (tags, HEAD)
+  def publishVersion = Task.Input {
+    val lastTag = gitLastTag(BuildCtx.workspaceRoot)
+    computePublishVersion(lastTag, lastTag.fold(0)(gitCommitsSince(BuildCtx.workspaceRoot, _)))
   }
   def pomSettings = PomSettings(
     description = artifactName(),
@@ -358,6 +331,10 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
 def publishSonatype(tasks: Tasks[PublishModule.PublishData]) =
   Task.Command {
     import scala.concurrent.duration.DurationInt
+    // without a tag, the version is a placeholder (0.0.0-SNAPSHOT), which mustn't be released
+    build.project.publish.requireTagForRelease(
+      build.project.publish.gitLastTag(BuildCtx.workspaceRoot)
+    )
     val timeout     = 10.minutes
     val pgpPassword = sys.env("PGP_PASSWORD")
     val data        = Task.sequence(tasks.value)()

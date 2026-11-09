@@ -1,0 +1,46 @@
+package build.project.publish
+
+private def runGit(workspace: os.Path, args: String*): Option[String] =
+  os.proc("git" +: args).call(cwd = workspace, check = false, stderr = os.Pipe).out.trim() match
+    case s if s.nonEmpty => Some(s)
+    case _               => None
+
+/** Last git tag, if any */
+def gitLastTag(workspace: os.Path): Option[String] =
+  runGit(workspace, "describe", "--tags", "--abbrev=0")
+    .orElse(runGit(workspace, "tag", "-l", "--sort=-version:refname").flatMap(s =>
+      s.split("\n").headOption.filter(_.nonEmpty)
+    ))
+
+/** Number of commits since the passed tag */
+def gitCommitsSince(workspace: os.Path, tag: String): Int =
+  runGit(workspace, "rev-list", "--count", s"$tag..HEAD").fold(0)(_.toInt)
+
+private def noTagMessage =
+  "No git tag found. If tags are missing from this clone (shallow clone, fork…), " +
+    "fetch them with 'git fetch --tags' (from the upstream repository for forks)."
+
+/** Fails if there's no tag, in which case there's no actual version to release */
+def requireTagForRelease(lastTag: Option[String]): Unit =
+  if lastTag.isEmpty then sys.error(s"Can't release: $noTagMessage")
+
+// e.g. 1.2.3 or 1.2.3-RC1 (once "v" is stripped)
+private val TagVersion = """(\d+(?:\.\d+)*)(-[0-9A-Za-z][0-9A-Za-z.-]*)?""".r
+
+/** Version to publish, from the last git tag and the number of commits since it */
+def computePublishVersion(lastTag: Option[String], commitsSinceTag: Int): String =
+  lastTag match
+    case None      => "0.0.0-SNAPSHOT"
+    case Some(tag) => tagVersion(tag, commitsSinceTag)
+
+private def tagVersion(tag: String, commitsSinceTag: Int): String =
+  tag.stripPrefix("v") match
+    case version @ TagVersion(numbers, preRelease) =>
+      if commitsSinceTag <= 0 then version
+      // after 1.0.0-RC1 comes 1.0.0 (which 1.0.0-SNAPSHOT is a snapshot of), not 1.0.1
+      else if preRelease != null then s"$numbers-SNAPSHOT"
+      else
+        val parts = numbers.split('.')
+        (parts.init :+ (BigInt(parts.last) + 1).toString).mkString(".") + "-SNAPSHOT"
+    case _ =>
+      sys.error(s"Unsupported tag: $tag (expected something like v1.2.3 or v1.2.3-RC1)")
