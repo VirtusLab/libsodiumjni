@@ -16,3 +16,6 @@ target/
 *.sw[op]
 .DS_Store
 
+# Claude Code local files (keep the skills symlink)
+.claude/*
+!.claude/skills
