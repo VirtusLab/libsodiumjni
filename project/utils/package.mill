@@ -70,4 +70,5 @@ def nativeResourceDir(classifier: String): String =
     case "x86_64-pc-linux"      => "linux64"
     case "aarch64-pc-linux"     => "linux-aarch64"
     case "x86_64-pc-win32"      => "windows64"
+    case "aarch64-pc-win32"     => "windows-aarch64"
     case other                  => sys.error(s"Unrecognized classifier: $other")

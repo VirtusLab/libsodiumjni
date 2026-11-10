@@ -73,7 +73,9 @@ public final class LoadLibrary {
         }
         else if (osName.contains("windows")) {
             os = "Windows";
-            dir = "x86_64".equals(arch) ? "windows64/libsodiumjni.dll" : null;
+            dir = "x86_64".equals(arch) ? "windows64/libsodiumjni.dll"
+                    : "aarch64".equals(arch) ? "windows-aarch64/libsodiumjni.dll"
+                    : null;
         }
         else
           throw new UnsupportedOperationException("Unrecognized or unsupported OS: " + osName);

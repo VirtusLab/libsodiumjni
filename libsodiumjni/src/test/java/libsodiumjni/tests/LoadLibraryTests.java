@@ -45,12 +45,16 @@ public class LoadLibraryTests {
     }
 
     @Test
+    public void windowsAarch64ResourcePath() {
+        // native arm64 JVM on Windows on ARM
+        assertEquals("META-INF/native/windows-aarch64/libsodiumjni.dll", LoadLibrary.resourcePath("Windows 11", "aarch64"));
+    }
+
+    @Test
     public void windowsUnsupportedArchitecturesFail() {
-        // e.g. a native arm64 JVM on Windows on ARM, which can't load the x86_64 DLL
-        UnsupportedOperationException ex = assertThrows(UnsupportedOperationException.class, () -> LoadLibrary.resourcePath("Windows 11", "aarch64"));
-        assertEquals("Unsupported architecture on Windows: aarch64", ex.getMessage());
         // 32-bit JVM
-        assertThrows(UnsupportedOperationException.class, () -> LoadLibrary.resourcePath("Windows 10", "x86"));
+        UnsupportedOperationException ex = assertThrows(UnsupportedOperationException.class, () -> LoadLibrary.resourcePath("Windows 10", "x86"));
+        assertEquals("Unsupported architecture on Windows: x86", ex.getMessage());
     }
 
     @Test

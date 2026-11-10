@@ -57,6 +57,7 @@ aarch64-pc-linux|linux-aarch64|so|a|ELF 64-bit LSB shared object, ARM aarch64,*
 x86_64-apple-darwin|darwin|dylib|a|Mach-O 64-bit*x86_64*
 aarch64-apple-darwin|arm-darwin|dylib|a|Mach-O 64-bit*arm64*
 x86_64-pc-win32|windows64|dll|lib|PE32+ executable*(DLL)*x86-64*
+aarch64-pc-win32|windows-aarch64|dll|lib|PE32+ executable*(DLL)*Aarch64*
 EOF
 
 if [ "$status" -ne 0 ]; then

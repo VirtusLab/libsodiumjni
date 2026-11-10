@@ -83,7 +83,7 @@ trait JniUploadDownloadArtifacts extends JniWindowsModule with JniUnixPublish:
   def jniClassifier =
     if Properties.isWin then
       Task {
-        "x86_64-pc-win32"
+        windowsClassifier()
       }
     else
       Task {
@@ -174,6 +174,11 @@ trait JniPublishModule extends SonatypeCentralPublishModule with JniUploadDownlo
 trait JniWindowsModule extends Module:
 
   def windowsDllName: T[String]
+
+  /** Classifier of the native libraries built on this machine */
+  def windowsClassifier = Task {
+    s"$hostArch-pc-win32"
+  }
   def windowsLinkingLibs = Task(Seq.empty[String])
 
   def windowsJavaHome = Task {
@@ -216,7 +221,7 @@ trait JniWindowsModule extends Module:
       if needsUpdate then
         val userOptions = cOptions.map(v => "\"" + v + "\"").mkString(" ")
         val script      =
-          s"""@call "$vcvars"
+          s"""@call "${vcvars(hostArch)}"
              |if %errorlevel% neq 0 exit /b %errorlevel%
              |$windowsBatInit
              |cl /I $q${javaHome0 / "include"}$q /I $q${javaHome0 / "include" /
@@ -264,7 +269,7 @@ trait JniWindowsModule extends Module:
     if needsUpdate then
       val objArgs = objs.map(f => "\"" + f.path.toString + "\"").mkString(" ")
       val script  =
-        s"""@call "$vcvars"
+        s"""@call "${vcvars(hostArch)}"
            |if %errorlevel% neq 0 exit /b %errorlevel%
            |${windowsBatInit()}
            |link /DLL "/OUT:$dest" ${libsArgs.mkString(" ")} $objArgs
@@ -283,7 +288,7 @@ trait JniWindowsModule extends Module:
       !os.isFile(output) || allObjFiles.exists(f => os.mtime(output) < os.mtime(f))
     if libNeedsUpdate then
       val script =
-        s"""@call "$vcvars"
+        s"""@call "${vcvars(hostArch)}"
            |if %errorlevel% neq 0 exit /b %errorlevel%
            |lib "/out:$fileName" ${allObjFiles.map(f => "\"" + f.toString + "\"").mkString(" ")}
            |""".stripMargin
@@ -299,7 +304,7 @@ trait JniWindowsAddResources extends JavaModule with JniWindowsModule:
   def windowsResources = Task {
     val dll0        = windowsDll().path
     val dir         = Task.dest / "dll-resources"
-    val dllDir      = dir / "META-INF" / "native" / "windows64"
+    val dllDir      = dir / "META-INF" / "native" / nativeResourceDir(windowsClassifier())
     val dest        = dllDir / dll0.last
     val needsUpdate = !os.isFile(dest) || {
       val content    = os.read.bytes(dest)
@@ -324,14 +329,14 @@ trait JniWindowsPublish extends JniWindowsModule:
       PublishInfo(
         file = windowsDll(),
         ivyConfig = "compile",
-        classifier = Some("x86_64-pc-win32"),
+        classifier = Some(windowsClassifier()),
         ext = "dll",
         ivyType = "dll"
       ),
       PublishInfo(
         file = windowsLib(),
         ivyConfig = "compile",
-        classifier = Some("x86_64-pc-win32"),
+        classifier = Some(windowsClassifier()),
         ext = "lib",
         ivyType = "lib"
       )

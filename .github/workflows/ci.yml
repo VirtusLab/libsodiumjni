@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, macos-latest, macos-15-intel]
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, windows-11-arm, macos-latest, macos-15-intel]
         include:
           - os: ubuntu-latest
             platform: linux
@@ -20,6 +20,8 @@ jobs:
             platform: linux-aarch64
           - os: windows-latest
             platform: windows
+          - os: windows-11-arm
+            platform: windows-aarch64
           - os: macos-latest
             platform: mac-aarch64
           - os: macos-15-intel
@@ -33,8 +35,16 @@ jobs:
         submodules: true
     - uses: coursier/cache-action@v9
     - uses: VirtusLab/scala-cli-setup@v1
+      if: matrix.platform != 'windows-aarch64'
       with:
         jvm: zulu:17
+    # Mill and the tests must run on a native arm64 JVM there, so that the native library is built
+    # for arm64 (setup-java picks the runner architecture by default)
+    - uses: actions/setup-java@v6
+      if: matrix.platform == 'windows-aarch64'
+      with:
+        distribution: zulu
+        java-version: 17
     - name: Install libsodium (Linux)
       if: runner.os == 'Linux'
       run: sudo apt-get install -y libsodium-dev
@@ -90,6 +100,10 @@ jobs:
           path: artifacts/
       - uses: actions/download-artifact@v8
         with:
+          name: artifacts-windows-aarch64
+          path: artifacts/
+      - uses: actions/download-artifact@v8
+        with:
           name: artifacts-mac-intel
           path: artifacts/
       - uses: actions/download-artifact@v8
@@ -129,6 +143,10 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: artifacts-windows
+          path: artifacts/
+      - uses: actions/download-artifact@v8
+        with:
+          name: artifacts-windows-aarch64
           path: artifacts/
       - uses: actions/download-artifact@v8
         with:

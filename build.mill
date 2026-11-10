@@ -3,7 +3,7 @@ package build
 
 import build.project.settings.{GenerateHeaders, JniModule, JniPublishModule, JniResourcesModule}
 import build.project.publish.{computePublishVersion, gitCommitsSince, gitLastTag}
-import build.project.utils.isArmArchitecture
+import build.project.utils.{hostArch, isArmArchitecture}
 
 import coursier.cache.ArchiveCache
 import coursier.util.Artifact
@@ -218,13 +218,19 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
       case Left(e)     => throw new Exception(e)
       case Right(dir0) => os.Path(dir0, BuildCtx.workspaceRoot)
 
+  // The libsodium MSVC archive has libraries for both x64 and ARM64
+  private def windowsLibSodiumArchDir: String =
+    hostArch match
+      case "x86_64"  => "x64"
+      case "aarch64" => "ARM64"
+      case other     => sys.error(s"Unsupported architecture on Windows: $other")
+
   private def windowsLibSodiumDllDir(): os.Path =
-    windowsLibSodiumDistDir() / "libsodium" / "x64" / "Release" / "v143" / "dynamic"
+    windowsLibSodiumDistDir() / "libsodium" / windowsLibSodiumArchDir / "Release" / "v143" /
+      "dynamic"
 
   def windowsLinkingLibs = Task {
-    val dir = windowsLibSodiumDistDir()
-    val lib = dir / "libsodium" / "x64" / "Release" / "v143" / "dynamic" / "libsodium"
-    super.windowsLinkingLibs() ++ Seq(lib.toString)
+    super.windowsLinkingLibs() ++ Seq((windowsLibSodiumDllDir() / "libsodium").toString)
   }
   def extraWindowsCOptions = Task {
     val dir       = windowsLibSodiumDistDir()
