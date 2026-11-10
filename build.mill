@@ -310,33 +310,40 @@ def doPublishSonatype(
     )
     set.head
 
-  // Sonatype Central Portal (replaces deprecated SonatypePublisher / Nexus)
-  val creds     = SonatypeCredentials(username = username, password = password)
-  val publisher = new SonatypeCentralPublisher(
-    credentials = creds,
-    gpgArgs = Seq(
-      "--detach-sign",
-      "--batch=true",
-      "--yes",
-      "--pinentry-mode",
-      "loopback",
-      "--passphrase",
-      pgpPassword,
-      "--armor",
-      "--use-agent"
-    ),
-    readTimeout = timeout.toMillis.toInt,
-    connectTimeout = timeout.toMillis.toInt,
-    log = log,
-    workspace = workspace,
-    env = env,
-    awaitTimeout = timeout.toMillis.toInt
-  )
-  val publishingType =
-    if isRelease then PublishingType.AUTOMATIC
-    else PublishingType.USER_MANAGED
-  publisher.publishAll(
-    publishingType = publishingType,
-    singleBundleName = None,
-    artifacts = artifacts*
-  )
+  // gpg gets the passphrase from a file only readable by the current user (created with these
+  // permissions, before the passphrase is written to it), rather than as a command-line argument,
+  // that other processes on the machine could see (e.g. with ps)
+  val passphraseFile =
+    os.temp(contents = pgpPassword, prefix = "gpg-passphrase-", perms = "rw-------")
+  try
+    // Sonatype Central Portal (replaces deprecated SonatypePublisher / Nexus)
+    val creds     = SonatypeCredentials(username = username, password = password)
+    val publisher = new SonatypeCentralPublisher(
+      credentials = creds,
+      gpgArgs = Seq(
+        "--detach-sign",
+        "--batch=true",
+        "--yes",
+        "--pinentry-mode",
+        "loopback",
+        "--passphrase-file",
+        passphraseFile.toString,
+        "--armor",
+        "--use-agent"
+      ),
+      readTimeout = timeout.toMillis.toInt,
+      connectTimeout = timeout.toMillis.toInt,
+      log = log,
+      workspace = workspace,
+      env = env,
+      awaitTimeout = timeout.toMillis.toInt
+    )
+    val publishingType =
+      if isRelease then PublishingType.AUTOMATIC
+      else PublishingType.USER_MANAGED
+    publisher.publishAll(
+      publishingType = publishingType,
+      singleBundleName = None,
+      artifacts = artifacts*
+    )
+  finally os.remove(passphraseFile)
