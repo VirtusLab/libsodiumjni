@@ -1,35 +1,27 @@
 package libsodiumjni.tests;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.util.Locale;
 
-import libsodiumjni.internal.LoadLibrary;
 import org.junit.Assume;
 import org.junit.Test;
 
 /**
- * Checks that the native library is built with stack protection (-fstack-protector-strong), which
- * makes it import the stack canary failure handler. Many toolchains enable it by default, but the
- * build shouldn't rely on that.
+ * Checks that the libsodiumjni native code is compiled with stack protection
+ * (-fstack-protector-strong), which makes it import the stack canary failure handler. Many
+ * toolchains enable it by default, but the build shouldn't rely on that.
  *
- * <p>Linux only: on macOS, libsodium is linked statically in the library, and its own objects
- * import that handler, whatever the flags used for the libsodiumjni code. (On Linux, libsodium is a
- * separate shared library.)
+ * <p>This checks the object files of the libsodiumjni code (passed by the build in the
+ * libsodiumjni.test.objectFiles property), rather than the native library: libsodium is linked
+ * statically in the latter on Linux and macOS, and its own objects import that handler, whatever
+ * the flags used for the libsodiumjni code.
  */
 public class NativeLibraryHardeningTests {
-
-    private static boolean isLinux() {
-        return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("linux");
-    }
 
     private static boolean nmAvailable() {
         try {
@@ -43,28 +35,20 @@ public class NativeLibraryHardeningTests {
     }
 
     @Test
-    public void nativeLibraryHasStackProtection() throws Exception {
-        Assume.assumeTrue("Linux only", isLinux());
+    public void nativeCodeHasStackProtection() throws Exception {
+        String objectFiles = System.getProperty("libsodiumjni.test.objectFiles", "");
+        Assume.assumeFalse("no object files passed by the build (Windows, or not run by Mill)", objectFiles.isEmpty());
         Assume.assumeTrue("needs nm", nmAvailable());
 
-        String resourcePath = LoadLibrary.resourcePath();
-        URL url = NativeLibraryHardeningTests.class.getClassLoader().getResource(resourcePath);
-        Path lib = Files.createTempFile("libsodiumjni-hardening", ".so");
-        try {
-            try (InputStream is = url.openStream()) {
-                Files.copy(is, lib, StandardCopyOption.REPLACE_EXISTING);
-            }
-            // undefined (imported) symbols
-            Process proc = new ProcessBuilder("nm", "-D", "--undefined-only", lib.toString())
-                    .redirectErrorStream(true)
-                    .start();
+        for (String objectFile : objectFiles.split(File.pathSeparator)) {
+            // undefined (imported) symbols, e.g. "___stack_chk_fail" on macOS, "__stack_chk_fail" on Linux
+            Process proc = new ProcessBuilder("nm", "-u", objectFile).redirectErrorStream(true).start();
             String output = new String(proc.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             assertEquals("nm failed:\n" + output, 0, proc.waitFor());
+            assertFalse("No undefined symbols found in " + objectFile + ", is nm output parsed correctly?", output.isBlank());
             assertTrue(
-                    resourcePath + " doesn't import __stack_chk_fail, is it built with stack protection?\n" + output,
+                    objectFile + " doesn't import __stack_chk_fail, is it compiled with stack protection?\n" + output,
                     output.contains("__stack_chk_fail"));
-        } finally {
-            Files.deleteIfExists(lib);
         }
     }
 }

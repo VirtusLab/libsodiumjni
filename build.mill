@@ -23,23 +23,30 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
   def windowsDllName = Task("libsodiumjni")
   def unixLibName    = Task("libsodiumjni")
 
-  def unixLinkingLibs = Task {
-    // On macOS, libsodium is built from source and linked statically (see unixLinkingArgs)
-    if Properties.isMac then super.unixLinkingLibs()
-    else super.unixLinkingLibs() ++ Seq("sodium")
-  }
-
-  // On macOS, -lsodium makes the dylib reference libsodium by its absolute install name
-  // (e.g. /opt/homebrew/opt/libsodium/lib/libsodium.26.dylib), which only exists on machines
-  // with Homebrew's libsodium. Linking the static archive makes the dylib self-contained.
+  // libsodium is built from source and linked statically on Linux and macOS (see unixLibSodium), so
+  // that the native library doesn't depend on a particular libsodium install / version:
+  // - on macOS, -lsodium made the dylib reference libsodium by its absolute install name (e.g.
+  //   /opt/homebrew/opt/libsodium/lib/libsodium.26.dylib), which only exists with Homebrew's
+  //   libsodium
+  // - on Linux, -lsodium made the .so depend on the soname of the build machine's libsodium (e.g.
+  //   libsodium.so.23 for libsodium 1.0.18), which changes with libsodium versions
   def unixLinkingArgs = Task {
-    val libSodiumOpt = macosLibSodium()
+    val libSodiumOpt = unixLibSodium()
     super.unixLinkingArgs() ++ libSodiumOpt.toSeq.flatMap { libSodium =>
-      macosDeploymentTargetOptions ++ Seq(
-        // fail if any linked object targets a newer macOS version than macosDeploymentTarget
-        "-Wl,-fatal_warnings",
-        (libSodium.path / "lib" / "libsodium.a").toString
-      )
+      val archive = (libSodium.path / "lib" / "libsodium.a").toString
+      if Properties.isMac then
+        macosDeploymentTargetOptions ++ Seq(
+          // fail if any linked object targets a newer macOS version than macosDeploymentTarget
+          "-Wl,-fatal_warnings",
+          archive
+        )
+      else
+        Seq(
+          // don't export libsodium's symbols from the .so, so that they can't clash with those of
+          // another libsodium loaded in the same process
+          "-Wl,--exclude-libs,ALL",
+          archive
+        )
     }
   }
 
@@ -50,23 +57,24 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
   private def macosDeploymentTarget        = "11.0"
   private def macosDeploymentTargetOptions = Seq(s"-mmacosx-version-min=$macosDeploymentTarget")
 
-  // Same version as the Windows build. The checksum matches both download.libsodium.org and the
-  // jedisct1/libsodium GitHub release asset.
-  private def libsodiumVersion          = "1.0.21"
+  // Used on all OSes: built from source on Linux / macOS, official MSVC build on Windows. The
+  // checksum of the source tarball matches both download.libsodium.org and the jedisct1/libsodium
+  // GitHub release asset. (1.0.21 doesn't compile with gcc on arm64.)
+  private def libsodiumVersion          = "1.0.22"
   private def libsodiumSourceTarballSha256 =
-    "9e4285c7a419e82dedb0be63a72eea357d6943bc3e28e6735bf600dd4883feaf"
+    "adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349"
 
   /**
-   * On macOS, libsodium built from source as a static library, targeting macosDeploymentTarget.
-   * Pre-built static libraries (e.g. Homebrew's) target the macOS version they were built on, which
+   * On Linux and macOS, libsodium built from source as a static library (with position independent
+   * code, to be linked in the shared library). On macOS, it targets macosDeploymentTarget:
+   * pre-built static libraries (e.g. Homebrew's) target the macOS version they were built on, which
    * would prevent libsodiumjni.dylib from loading on older macOS versions.
    *
    * Returns the installation prefix (with `include` and `lib` sub-directories).
    */
-  def macosLibSodium = Task {
-    if !Properties.isMac then None
+  def unixLibSodium = Task {
+    if !Properties.isMac && !Properties.isLinux then None
     else
-      val arch    = if isArmArchitecture then "arm64" else "x86_64"
       val tarball = downloadLibSodiumSources()
 
       val srcDir = Task.dest / "src"
@@ -75,12 +83,17 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
       os.proc("tar", "-xzf", tarball, "-C", srcDir, "--strip-components=1")
         .call(cwd = Task.dest)
 
-      val flags = s"-arch $arch ${macosDeploymentTargetOptions.mkString(" ")}"
-      val env   = Map(
-        "CFLAGS"                   -> s"-O3 $flags",
-        "LDFLAGS"                  -> flags,
-        "MACOSX_DEPLOYMENT_TARGET" -> macosDeploymentTarget
-      )
+      val env =
+        if Properties.isMac then
+          val arch  = if isArmArchitecture then "arm64" else "x86_64"
+          val flags = s"-arch $arch ${macosDeploymentTargetOptions.mkString(" ")}"
+          Map(
+            "CFLAGS"                   -> s"-O3 $flags",
+            "LDFLAGS"                  -> flags,
+            "MACOSX_DEPLOYMENT_TARGET" -> macosDeploymentTarget
+          )
+        else
+          Map("CFLAGS" -> "-O3")
       val log = Task.dest / "build.log"
       def run(cmd: String*): Unit =
         System.err.println(s"Running ${cmd.mkString(" ")} (output in $log)")
@@ -122,76 +135,9 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
       )
     file
 
-  // On macOS, libsodium is built from source (see macosLibSodium), so the following only look for
-  // the libsodium installed on Linux
-
-  /** Output of pkg-config, if it's installed and succeeds */
-  private def pkgConfig(args: String*): Option[String] =
-    try
-      val res = os.proc("pkg-config" +: args).call(
-        cwd = BuildCtx.workspaceRoot,
-        check = false,
-        stderr = os.Pipe
-      )
-      if res.exitCode == 0 then Some(res.out.trim()) else None
-    catch
-      // pkg-config not installed
-      case _: java.io.IOException => None
-
-  private def linuxLibSodiumLibDir(): Option[String] =
-    pkgConfig("--libs", "libsodium") match
-      case Some(output) =>
-        // Extract -L path from pkg-config output (e.g., "-L/usr/local/lib"). If pkg-config succeeds
-        // with no -L flag, the library is in a standard path, that the linker finds automatically.
-        output.split(" ").find(_.startsWith("-L")).map(_.drop(2))
-          .filter(p => os.exists(os.Path(p, BuildCtx.workspaceRoot)))
-      case None =>
-        linuxLibSodiumLibDirFallback()
-
-  // Common installation paths, when pkg-config isn't available
-  private def linuxLibSodiumLibDirFallback(): Option[String] =
-    val commonPaths = Seq(
-      "/usr/local/lib",             // local install
-      "/usr/lib/x86_64-linux-gnu",  // Ubuntu/Debian x86_64
-      "/usr/lib/aarch64-linux-gnu", // Ubuntu/Debian arm64
-      "/usr/lib64",                 // Some Linux distributions
-      "/usr/lib"                    // Standard Linux path
-    )
-    commonPaths.find { path =>
-      val libPath = os.Path(path)
-      os.exists(libPath) && os.list(libPath).exists(_.last.startsWith("libsodium"))
-    }
-
-  def unixLinkingLibPaths = Task {
-    // On macOS, libsodium is built from source and linked statically (see macosLibSodium)
-    val libDir = if Properties.isMac then None else linuxLibSodiumLibDir()
-    // If libDir is None, library is in standard path and linker will find it automatically
-    super.unixLinkingLibPaths() ++ libDir.toSeq
-  }
-
-  private def linuxLibSodiumIncludeDir(): String =
-    // Try pkg-config first (extracting the -I path from its output, e.g. "-I/usr/local/include")
-    val fromPkgConfig = pkgConfig("--cflags", "libsodium")
-      .flatMap(_.split(" ").find(_.startsWith("-I")).map(_.drop(2)))
-      .filter(p => os.exists(os.Path(p, BuildCtx.workspaceRoot)))
-    // Fall back to common installation paths
-    val commonPaths = Seq(
-      "/usr/local/include", // local install
-      "/usr/include"        // Standard Linux path
-    )
-    val fromCommonPaths = commonPaths.find(path => os.exists(os.Path(path) / "sodium.h"))
-    fromPkgConfig.orElse(fromCommonPaths).getOrElse {
-      sys.error(
-        "libsodium headers not found. Please install libsodium (e.g., " +
-          "'sudo apt-get install libsodium-dev')"
-      )
-    }
-
   def extraUnixCOptions = Task {
-    val includeDir = macosLibSodium() match
-      case Some(libSodium) => (libSodium.path / "include").toString
-      case None            => linuxLibSodiumIncludeDir()
-    Seq(s"-I$includeDir")
+    val libSodium = unixLibSodium().getOrElse(sys.error("Unsupported OS"))
+    Seq(s"-I${libSodium.path / "include"}")
   }
 
   // The C code includes the JNI header that compile generates (javac -h, see GenerateHeaders), so
@@ -213,7 +159,10 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
   private def windowsLibSodiumDistDir(): os.Path =
     val archiveCache = ArchiveCache()
     archiveCache.get(
-      Artifact("https://download.libsodium.org/libsodium/releases/libsodium-1.0.21-stable-msvc.zip")
+      Artifact(
+        "https://download.libsodium.org/libsodium/releases/" +
+          s"libsodium-$libsodiumVersion-stable-msvc.zip"
+      )
     ).unsafeRun()(using archiveCache.cache.ec) match
       case Left(e)     => throw new Exception(e)
       case Right(dir0) => os.Path(dir0, BuildCtx.workspaceRoot)
@@ -285,6 +234,20 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
       mvn"com.github.sbt:junit-interface:0.13.3"
     )
     def testFramework = "com.novocode.junit.JUnitFramework"
+
+    // Object files of the libsodiumjni native code (without libsodium), for
+    // NativeLibraryHardeningTests. (The ifs must be outside of Task { … }, as Mill evaluates all
+    // the tasks referenced in a task body, and the macOS compile tasks fail on other OSes.)
+    def nativeObjectFiles: T[Seq[PathRef]] =
+      if Properties.isMac && isArmArchitecture then Task(libsodiumjni.macosArm64Compile())
+      else if Properties.isMac then Task(libsodiumjni.macosX86_64Compile())
+      else if Properties.isLinux then Task(libsodiumjni.unixCompile())
+      else Task(Seq.empty[PathRef])
+
+    def forkArgs = Task {
+      val objectFiles = nativeObjectFiles().map(_.path).mkString(java.io.File.pathSeparator)
+      super.forkArgs() ++ Seq(s"-Dlibsodiumjni.test.objectFiles=$objectFiles")
+    }
     def forkEnv       = Task {
       val env = super.forkEnv()
       if Properties.isWin then

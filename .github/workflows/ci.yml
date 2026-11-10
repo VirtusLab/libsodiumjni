@@ -45,9 +45,6 @@ jobs:
       with:
         distribution: zulu
         java-version: 17
-    - name: Install libsodium (Linux)
-      if: runner.os == 'Linux'
-      run: sudo apt-get install -y libsodium-dev
     - name: Run tests
       run: ./mill -i __.test
     - name: Check that the build didn't modify tracked files
@@ -83,9 +80,6 @@ jobs:
       - uses: VirtusLab/scala-cli-setup@v1
         with:
           jvm: zulu:17
-      - name: Install libsodium (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get install -y libsodium-dev
       - uses: actions/download-artifact@v8
         with:
           name: artifacts-linux
@@ -129,9 +123,6 @@ jobs:
       - uses: VirtusLab/scala-cli-setup@v1
         with:
           jvm: zulu:17
-      - name: Install libsodium (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get install -y libsodium-dev
       - uses: actions/download-artifact@v8
         with:
           name: artifacts-linux

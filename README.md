@@ -25,7 +25,7 @@ The motivation for writing libsodiumjni, rather than using any of the existing J
 
 Linux arm64 and Windows arm64 are supported since 1.0.0. On other platforms, loading the native library fails with an `UnsupportedOperationException`.
 
-libsodiumjni requires Java 17 or later.
+libsodiumjni requires Java 17 or later. On Linux, it requires glibc 2.33 or later (e.g. Ubuntu 22.04, Debian 12, RHEL 9, or later).
 
 ## Usage
 
@@ -68,11 +68,9 @@ The native library is loaded at most once per JVM, and `Sodium.init` can be call
 
 ### Native library dependencies
 
-On macOS, libsodium is linked statically in the native library, so it has no dependencies besides the system libraries.
+On Linux and macOS, libsodium (1.0.22) is linked statically in the native library, so it has no dependencies besides the system libraries.
 
-On Linux and Windows, the native library links dynamically against libsodium, which must be either installed, or loaded beforehand (with `System.load`):
-- Linux: `libsodium.so.23` (libsodium 1.0.18, the one of Ubuntu 24.04, e.g. from the `libsodium23` package)
-- Windows: `libsodium.dll` (libsodium 1.0.21, from its [official MSVC build](https://download.libsodium.org/libsodium/releases/))
+On Windows, the native library links dynamically against libsodium, so `libsodium.dll` must be either on the `PATH`, or loaded beforehand (with `System.load`). It's built against libsodium 1.0.22, from its [official MSVC build](https://download.libsodium.org/libsodium/releases/).
 
 ### Native library files
 
@@ -98,8 +96,8 @@ $ ./mill __.test
 ```
 
 Requirements, besides a JDK (17 or later):
-- Linux: gcc, and libsodium with its headers (e.g. `sudo apt-get install libsodium-dev`), found via `pkg-config` if installed
-- macOS: the Xcode command line tools. libsodium is downloaded and built from source by the build, for the native library to target macOS 11.0 and later
+- Linux: gcc and make. libsodium is downloaded and built from source by the build, to be linked statically
+- macOS: the Xcode command line tools. libsodium is downloaded and built from source by the build, to be linked statically, with the native library targeting macOS 11.0 and later
 - Windows: Visual Studio, with the C++ build tools for your CPU architecture. The build finds it with `vswhere`, or you can put the path of the `vcvars64.bat` script in the `VCVARSALL` environment variable. libsodium is downloaded by the build (official MSVC build)
 
 The native libraries of all the supported platforms are built on the CI, and published to Maven Central from there. Releases are published from `vX.Y.Z` git tags. Other commits are published as `-SNAPSHOT` versions.
