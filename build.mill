@@ -271,10 +271,11 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
   def pomSettings = PomSettings(
     description = artifactName(),
     organization = "org.virtuslab.scala-cli",
-    url = "https://github.com/virtusLab/libsodiumjni",
+    url = "https://github.com/VirtusLab/libsodiumjni",
     licenses = Seq(License.`Apache-2.0`),
-    versionControl = VersionControl.github("virtusLab", "libsodiumjni"),
+    versionControl = VersionControl.github("VirtusLab", "libsodiumjni"),
     developers = Seq(
+      Developer("Gedochao", "Piotr Chabelski", "https://github.com/Gedochao"),
       Developer("alexarchambault", "Alex Archambault", "https://github.com/alexarchambault")
     )
   )
