@@ -60,8 +60,9 @@ Single Mill module, `libsodiumjni` (Java + C), with its tests in `libsodiumjni.t
 ```
 
 Native libraries are built for the build machine only (OS and CPU, from the `os.arch` of the JVM running Mill). The
-CI builds each platform on its own runner, and the release job merges them. libsodium is built from source and linked
-statically on Linux / macOS, and comes from its official MSVC build on Windows (linked dynamically). See
+CI builds each platform on its own runner, and the release job merges them. libsodium is linked statically in the shared
+libraries: built from source on Linux / macOS, from its official MSVC build (static library, static C runtime) on
+Windows. See
 [agent-skills/](agent-skills/) to test on Linux from macOS, and for what can't be tested locally.
 
 ## Rules

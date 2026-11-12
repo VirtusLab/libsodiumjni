@@ -176,18 +176,30 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
       case "aarch64" => "ARM64"
       case other     => sys.error(s"Unsupported architecture on Windows: $other")
 
-  private def windowsLibSodiumDllDir(): os.Path =
+  /**
+   * Static libsodium library of the libsodium MSVC archive, built with the static C runtime (/MT,
+   * LIBCMT), like the libsodiumjni code (see extraWindowsCOptions)
+   */
+  private def windowsLibSodiumStaticDir(): os.Path =
     windowsLibSodiumDistDir() / "libsodium" / windowsLibSodiumArchDir / "Release" / "v143" /
-      "dynamic"
+      "static"
 
+  // libsodium is linked statically in libsodiumjni.dll, so that it doesn't need a libsodium.dll
+  // (which users had to download and load beforehand). libsodiumjni.lib (for GraalVM native
+  // images) only has the libsodiumjni code: users link libsodium themselves after it.
   def windowsLinkingLibs = Task {
-    super.windowsLinkingLibs() ++ Seq((windowsLibSodiumDllDir() / "libsodium").toString)
+    super.windowsLinkingLibs() ++ Seq((windowsLibSodiumStaticDir() / "libsodium").toString)
   }
   def extraWindowsCOptions = Task {
     val dir       = windowsLibSodiumDistDir()
     val headerDir = dir / "libsodium" / "include"
     Seq(
       "/D__WIN__",
+      // libsodium is linked statically, its functions aren't imported from a DLL
+      "/DSODIUM_STATIC",
+      // static C runtime, as the static libsodium uses (cl's default, made explicit): mixing C
+      // runtimes fails to link, and the dynamic one (vcruntime140.dll) isn't installed everywhere
+      "/MT",
       "/I",
       headerDir.toString
     )
@@ -198,16 +210,10 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
   }
   def windowsLibCOptions = Task {
     super.windowsLibCOptions() ++
-      extraWindowsCOptions() ++
-      Seq("/DSODIUM_STATIC")
+      extraWindowsCOptions()
   }
   def windowsBatInit = Task {
-    import java.util.Locale
-    val dllDir         = windowsLibSodiumDllDir()
-    val pathEnvVarName = sys.env.find(_._1.toLowerCase(Locale.ROOT) == "path").fold("PATH")(_._1)
-    "@echo on" + System.lineSeparator() +
-      super.windowsBatInit() + System.lineSeparator() +
-      s"""set "$pathEnvVarName=$dllDir;%$pathEnvVarName%""""
+    "@echo on" + System.lineSeparator() + super.windowsBatInit()
   }
 
   def jniArtifactDir = Task.Input {
@@ -249,20 +255,6 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
     def forkArgs = Task {
       val objectFiles = nativeObjectFiles().map(_.path).mkString(java.io.File.pathSeparator)
       super.forkArgs() ++ Seq(s"-Dlibsodiumjni.test.objectFiles=$objectFiles")
-    }
-    def forkEnv       = Task {
-      val env = super.forkEnv()
-      if Properties.isWin then
-        // libsodiumjni.dll links dynamically against libsodium.dll, which must be on the PATH
-        import java.util.Locale
-        val pathKey = (env.keys ++ sys.env.keys)
-          .find(_.toLowerCase(Locale.ROOT) == "path")
-          .getOrElse("PATH")
-        val currentPath = env.get(pathKey).orElse(sys.env.get(pathKey))
-        val newPath     = (windowsLibSodiumDllDir().toString +: currentPath.toSeq)
-          .mkString(java.io.File.pathSeparator)
-        env + (pathKey -> newPath)
-      else env
     }
 
 def publishSonatype(tasks: Tasks[PublishModule.PublishData]) =

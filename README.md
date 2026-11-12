@@ -68,13 +68,13 @@ The native library is loaded at most once per JVM, and `Sodium.init` can be call
 
 ### Native library dependencies
 
-On Linux and macOS, libsodium (1.0.22) is linked statically in the native library, so it has no dependencies besides the system libraries.
+libsodium (1.0.22) is linked statically in the shared native libraries (`.so` / `.dylib` / `.dll`), so they have no dependencies besides the system libraries. On Windows, it comes from libsodium's [official MSVC build](https://download.libsodium.org/libsodium/releases/), and the C runtime is linked statically too.
 
-On Windows, the native library links dynamically against libsodium, so `libsodium.dll` must be either on the `PATH`, or loaded beforehand (with `System.load`). It's built against libsodium 1.0.22, from its [official MSVC build](https://download.libsodium.org/libsodium/releases/).
+Up to 1.0.0, the Windows native library linked dynamically against libsodium, so `libsodium.dll` had to be either on the `PATH`, or loaded beforehand (with `System.load`). This isn't needed anymore.
 
 ### Native library files
 
-The native libraries are also published as is, with the classifiers above, both as shared libraries (`.so` / `.dylib` / `.dll`) and as static ones (`.a` / `.lib`, for GraalVM native images for example). You can fetch them with commands such as
+The native libraries are also published as is, with the classifiers above, both as shared libraries (`.so` / `.dylib` / `.dll`) and as static ones (`.a` / `.lib`, for GraalVM native images for example). The static libraries only contain the libsodiumjni code: link libsodium after them. You can fetch them with commands such as
 ```text
 $ cs fetch --intransitive "org.virtuslab.scala-cli:libsodiumjni:1.0.0,classifier=x86_64-pc-win32,ext=dll,type=dll" -A dll
 ```

@@ -25,8 +25,9 @@ import org.junit.Test;
 /**
  * Checks how the bundled native library is linked.
  *
- * <p>On macOS and Linux, libsodium is linked statically in it, so that it only depends on system
- * libraries, and doesn't require a specific libsodium version to be installed.
+ * <p>libsodium is linked statically in it, so that it only depends on system libraries, and doesn't
+ * require a specific libsodium version to be installed (or, on Windows, a libsodium.dll to be
+ * loaded beforehand).
  */
 public class NativeLibraryLinkageTests {
 
@@ -39,6 +40,10 @@ public class NativeLibraryLinkageTests {
 
     private static boolean isMac() {
         return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac");
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("windows");
     }
 
     private static boolean isLinux() {
@@ -181,6 +186,42 @@ public class NativeLibraryLinkageTests {
         } finally {
             Files.deleteIfExists(dylib);
         }
+    }
+
+    /**
+     * DLLs the Windows library may import: Windows system DLLs only. Not the Visual C++ runtime
+     * (vcruntime140.dll, ucrtbase.dll / api-ms-win-crt-*.dll), which isn't installed everywhere:
+     * the libsodiumjni code and libsodium (official MSVC static build) both link the C runtime
+     * statically (/MT).
+     */
+    private static boolean isWindowsSystemDll(String dll) {
+        String name = dll.toLowerCase(Locale.ROOT);
+        return name.equals("kernel32.dll")
+                || name.equals("advapi32.dll") // RtlGenRandom (SystemFunction036), used by libsodium
+                || name.equals("bcrypt.dll")
+                || name.equals("ntdll.dll");
+    }
+
+    @Test
+    public void windowsDllOnlyDependsOnSystemLibraries() throws Exception {
+        Assume.assumeTrue("Windows-only check", isWindows());
+
+        String resourcePath = LoadLibrary.resourcePath();
+        URL url = NativeLibraryLinkageTests.class.getClassLoader().getResource(resourcePath);
+        assertNotNull("Resource " + resourcePath + " not found", url);
+        byte[] content;
+        try (InputStream is = url.openStream()) {
+            content = is.readAllBytes();
+        }
+
+        List<String> imported = PeImports.importedDlls(content);
+        assertFalse("No imported DLLs found, is the import table parsed correctly?", imported.isEmpty());
+        List<String> nonSystem = imported.stream().filter(dll -> !isWindowsSystemDll(dll)).collect(Collectors.toList());
+        assertTrue(
+                "libsodiumjni.dll must only depend on Windows system DLLs (libsodium should be linked "
+                        + "statically, with the static C runtime), but it depends on: " + nonSystem
+                        + " (all imports: " + imported + ")",
+                nonSystem.isEmpty());
     }
 
     private static boolean isSystemLibrary(String path) {
