@@ -156,6 +156,33 @@ public class NativeLibraryLinkageTests {
         }
     }
 
+    @Test
+    public void macOsDylibOnlyExportsJniFunctions() throws Exception {
+        Assume.assumeTrue("macOS-only check", isMac());
+        Assume.assumeTrue("needs nm", toolAvailable("nm"));
+
+        Path dylib = extractResource(LoadLibrary.resourcePath(), ".dylib");
+        try {
+            // global defined symbols, e.g.
+            // "00000000000006e4 T _Java_libsodiumjni_internal_SodiumApi_crypto_1box_1keypair"
+            List<String> exported = new ArrayList<>();
+            for (String line : run("nm", "-gU", dylib.toString()).split("\n")) {
+                String[] parts = line.trim().split("\\s+");
+                if (parts.length == 3) exported.add(parts[2]);
+            }
+            assertFalse("No exported symbols found, is nm output parsed correctly?", exported.isEmpty());
+            // Mach-O symbol names get a leading underscore. As on Linux, the symbols of the statically
+            // linked libsodium mustn't be exported.
+            List<String> nonJni = exported.stream().filter(s -> !s.startsWith("_Java_")).collect(Collectors.toList());
+            assertTrue(
+                    "libsodiumjni.dylib must only export JNI functions, but it also exports " + nonJni.size()
+                            + " other symbols, e.g. " + nonJni.subList(0, Math.min(5, nonJni.size())),
+                    nonJni.isEmpty());
+        } finally {
+            Files.deleteIfExists(dylib);
+        }
+    }
+
     private static boolean isSystemLibrary(String path) {
         return path.startsWith("/usr/lib/") || path.startsWith("/System/Library/");
     }

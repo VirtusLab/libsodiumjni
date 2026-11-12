@@ -38,6 +38,8 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
         macosDeploymentTargetOptions ++ Seq(
           // fail if any linked object targets a newer macOS version than macosDeploymentTarget
           "-Wl,-fatal_warnings",
+          // only export the JNI functions, not libsodium's symbols, as on Linux
+          "-Wl,-exported_symbol,_Java_*",
           archive
         )
       else
