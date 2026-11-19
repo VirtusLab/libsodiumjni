@@ -1,1 +1,5 @@
 *.mill linguist-language=Scala
+# Bundled in the JAR as is: same bytes on all OSes (LICENSE must be the official Apache 2.0 text,
+# checked by its SHA-256 in LicenseResourcesTests), even with core.autocrlf=true (Windows)
+LICENSE text eol=lf
+THIRD-PARTY-NOTICES.txt text eol=lf

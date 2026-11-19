@@ -97,3 +97,14 @@ def checkSha256(file: os.Path, url: String, expectedSha256: String): Unit =
   val actual = sha256Hex(file)
   if expectedSha256.isEmpty || actual != expectedSha256.toLowerCase(Locale.ROOT) then
     sys.error(s"Unexpected SHA-256 for $url ($file): $actual, expected $expectedSha256")
+
+/**
+ * Text of a license written as a C comment, like libsodium's LICENSE file ("/*", then lines
+ * starting with " * ", then " */"), without the comment markers, with \n line endings
+ */
+def uncommentLicense(text: String): String =
+  text
+    .linesIterator
+    .filterNot(line => line.trim == "/*" || line.trim == "*/")
+    .map(line => line.stripPrefix(" *").stripPrefix(" "))
+    .mkString("\n")
