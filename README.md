@@ -115,3 +115,11 @@ Typical workflow:
 - use the newly added `native` method in [`Sodium.java`](https://github.com/VirtusLab/libsodiumjni/blob/main/libsodiumjni/src/main/java/libsodiumjni/Sodium.java)
 - add tests for it, e.g. in [`SodiumTests.java`](https://github.com/VirtusLab/libsodiumjni/blob/main/libsodiumjni/src/test/java/libsodiumjni/tests/SodiumTests.java)
 - ensure those tests pass when running `./mill __.test`
+
+## License
+
+libsodiumjni is licensed under the [Apache License 2.0](LICENSE).
+
+Its shared native libraries (`.so` / `.dylib` / `.dll`, both those bundled in the JAR and the per-platform artifacts) include [libsodium](https://libsodium.org), linked statically, which is licensed under the ISC license. Its license is in [`THIRD-PARTY-NOTICES.txt`](THIRD-PARTY-NOTICES.txt). The static libraries (`.a` / `.lib`) only contain the libsodiumjni code, not libsodium.
+
+Both files are also bundled in the JAR, as `META-INF/libsodiumjni/LICENSE` and `META-INF/libsodiumjni/THIRD-PARTY-NOTICES.txt`.
