@@ -35,6 +35,36 @@ trait GenerateHeaders extends JavaModule:
     res
   }
 
+/** gcc / clang options (Linux / macOS) for the C sources, besides include directories */
+def unixCompileOptions: Seq[String] = Seq(
+  "-O2",
+  "-Wall",
+  "-Wextra",
+  "-Werror",
+  "-fPIC",
+  // explicit, rather than relying on the toolchain defaults
+  "-fstack-protector-strong",
+  // -U first, as some toolchains define it already (warning, so error with -Werror)
+  "-U_FORTIFY_SOURCE",
+  "-D_FORTIFY_SOURCE=2"
+)
+
+/**
+ * cl options (Windows) for the C sources, besides include directories. /WX: warnings are errors,
+ * like -Werror on Linux / macOS
+ */
+def windowsClOptions: Seq[String] = Seq("/utf-8", "/O2", "/W4", "/WX")
+
+/**
+ * link options (Windows) for the DLL, besides its output path. /WX: warnings are errors, e.g.
+ * LNK4098 when objects built against different C runtimes are linked together (see the static
+ * libsodium in build.mill)
+ */
+def windowsLinkOptions: Seq[String] = Seq("/DLL", "/WX")
+
+/** lib options (Windows) for the static library, besides its output path */
+def windowsLibOptions: Seq[String] = Seq("/WX")
+
 trait JniModule
     extends JniWindowsModule with JniWindowsPublish with JniWindowsAddResources
     with JniUnixModule with JniUnixPublish with JniUnixAddResources
@@ -225,7 +255,7 @@ trait JniWindowsModule extends Module:
              |if %errorlevel% neq 0 exit /b %errorlevel%
              |$windowsBatInit
              |cl /I $q${javaHome0 / "include"}$q /I $q${javaHome0 / "include" /
-              "win32"}$q /utf-8 /O2 /W4 $userOptions /c $q$f$q
+              "win32"}$q ${windowsClOptions.mkString(" ")} $userOptions /c $q$f$q
              |""".stripMargin
         val scriptPath = dest / "run-cl.bat"
         os.write.over(scriptPath, script.getBytes, createFolders = true)
@@ -272,7 +302,7 @@ trait JniWindowsModule extends Module:
         s"""@call "${vcvars(hostArch)}"
            |if %errorlevel% neq 0 exit /b %errorlevel%
            |${windowsBatInit()}
-           |link /DLL "/OUT:$dest" ${libsArgs.mkString(" ")} $objArgs
+           |link ${windowsLinkOptions.mkString(" ")} "/OUT:$dest" ${libsArgs.mkString(" ")} $objArgs
            |""".stripMargin
       val scriptPath = Task.dest / "run-cl.bat"
       os.write.over(scriptPath, script.getBytes, createFolders = true)
@@ -290,7 +320,9 @@ trait JniWindowsModule extends Module:
       val script =
         s"""@call "${vcvars(hostArch)}"
            |if %errorlevel% neq 0 exit /b %errorlevel%
-           |lib "/out:$fileName" ${allObjFiles.map(f => "\"" + f.toString + "\"").mkString(" ")}
+           |lib ${windowsLibOptions.mkString(" ")} "/out:$fileName" ${allObjFiles
+              .map(f => "\"" + f.toString + "\"")
+              .mkString(" ")}
            |""".stripMargin
       val scriptPath = Task.dest / "run-lib.bat"
       os.write.over(scriptPath, script.getBytes, createFolders = true)
@@ -424,18 +456,7 @@ trait JniUnixModule extends Module:
       val path      = f.relativeTo(BuildCtx.workspaceRoot).toString
       val output    = destDir / s"${f.last.stripSuffix(".c")}.o"
       val relOutput = output.relativeTo(BuildCtx.workspaceRoot)
-      val command   = gcc0 ++ Seq(
-        "-c",
-        "-O2",
-        "-Wall",
-        "-Wextra",
-        "-Werror",
-        "-fPIC",
-        // explicit, rather than relying on the toolchain defaults
-        "-fstack-protector-strong",
-        // -U first, as some toolchains define it already (warning, so error with -Werror)
-        "-U_FORTIFY_SOURCE",
-        "-D_FORTIFY_SOURCE=2",
+      val command   = gcc0 ++ Seq("-c") ++ unixCompileOptions ++ Seq(
         s"-I$javaHome0/include",
         s"-I$javaHome0/include/$osDirName0"
       ) ++ extraOpts ++ Seq(path, "-o", relOutput.toString)

@@ -108,7 +108,7 @@ Typical workflow:
 - add a `native` method in [`SodiumApi.java`](https://github.com/VirtusLab/libsodiumjni/blob/main/libsodiumjni/src/main/java/libsodiumjni/internal/SodiumApi.java)
 - run `./mill __.compile`, which should add a corresponding declaration in [`libsodiumjni_internal_SodiumApi.h`](https://github.com/VirtusLab/libsodiumjni/blob/main/libsodiumjni/src/main/c/libsodiumjni_internal_SodiumApi.h). Commit that header along with your changes: the CI checks that it's up to date
 - add an implementation for that declaration in [`libsodiumjni_internal_SodiumApi.c`](https://github.com/VirtusLab/libsodiumjni/blob/main/libsodiumjni/src/main/c/libsodiumjni_internal_SodiumApi.c), in the same directory. Check the lengths of the arrays it's passed, and whether they're null, before accessing them, and wipe the secrets it copies (see the existing functions)
-- run `./mill __.compile` to ensure that the new C code compiles fine (warnings are errors, on Linux and macOS)
+- run `./mill __.compile` to ensure that the new C code compiles fine (warnings are errors)
 - use the newly added `native` method in [`Sodium.java`](https://github.com/VirtusLab/libsodiumjni/blob/main/libsodiumjni/src/main/java/libsodiumjni/Sodium.java)
 - add tests for it, e.g. in [`SodiumTests.java`](https://github.com/VirtusLab/libsodiumjni/blob/main/libsodiumjni/src/test/java/libsodiumjni/tests/SodiumTests.java)
 - ensure those tests pass when running `./mill __.test`

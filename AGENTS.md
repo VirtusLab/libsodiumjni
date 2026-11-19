@@ -43,6 +43,7 @@ Single Mill module, `libsodiumjni` (Java + C), with its tests in `libsodiumjni.t
 | `libsodiumjni/src/test/`                                   | Tests; `ChildJvm` runs scenarios in fresh JVMs                                           |
 | `build.mill`                                               | Module definition, how libsodium is obtained per OS, publishing                          |
 | `project/settings/package.mill`                            | Generic JNI build traits: C compilation / linking per OS, resources, per-classifier publishing |
+| `project/settings/tests/package.mill`                      | Tests of the compiler / linker options, as Mill commands (`./mill -i 'project.settings.tests._'`) |
 | `project/utils/package.mill`                               | Build architecture detection, classifier → `META-INF/native` directory mapping, checksums |
 | `project/utils/tests/package.mill`                         | Tests of the above, as Mill commands (`./mill -i 'project.utils.tests._'`)                |
 | `project/publish/package.mill`                             | Published version computation (from git tags)                                            |
@@ -70,10 +71,11 @@ Windows. See
 
 - **Every change of logic needs automated tests**, written first when possible (check they fail before the change).
   Re-run the full test suite locally before submitting. Platform-specific tests use JUnit `Assume` to skip elsewhere.
-- **Native code** (`libsodiumjni_internal_SodiumApi.c`): check arrays for null and every length before any memory access,
-  copy array contents with `Get/SetByteArrayRegion`, wipe copied secrets with `sodium_memzero`, and keep it free of
-  warnings (`-Wextra -Werror` on Linux / macOS). The public `Sodium` methods validate their arguments too, and throw
-  `IllegalArgumentException` / `NullPointerException` for invalid ones, `SodiumException` for libsodium failures.
+- **Native code** (`libsodiumjni_internal_SodiumApi.c`): check arrays for null and every length before any memory
+  access, copy array contents with `Get/SetByteArrayRegion`, wipe copied secrets with `sodium_memzero`, and keep it free
+  of warnings (`-Wextra -Werror` on Linux / macOS, `/W4 /WX` on Windows, where linker warnings are errors too). The
+  public `Sodium` methods validate their arguments too, and throw `IllegalArgumentException` / `NullPointerException`
+  for invalid ones, `SodiumException` for libsodium failures.
 - **Commit the regenerated JNI header** along with native method changes: the CI fails if the build modifies tracked
   files.
 - **Mill evaluates every task referenced in a `Task { … }` body, whichever `if` branch runs.** For OS- or

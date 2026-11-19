@@ -1,0 +1,34 @@
+package build.project.settings.tests
+
+import build.project.settings.{
+  unixCompileOptions,
+  windowsClOptions,
+  windowsLibOptions,
+  windowsLinkOptions
+}
+
+object `package` extends mill.Module:
+
+  /**
+   * Checks that compiler and linker warnings are errors on all OSes, as the native code must be
+   * free of warnings (run on the CI, there's no test module for the build code):
+   * `./mill -i 'project.settings.tests._'`
+   */
+  def testWarningsAreErrors() = mill.Task.Command {
+    def check(tool: String, options: Seq[String], required: String*): Seq[String] =
+      required.filterNot(options.contains).map(opt => s"$tool options ($options) lack $opt")
+    val failures =
+      check("gcc / clang", unixCompileOptions, "-Wall", "-Wextra", "-Werror") ++
+        // /W4: most warnings, /WX: warnings are errors
+        check("cl", windowsClOptions, "/W4", "/WX") ++
+        // e.g. LNK4098, when objects built against different C runtimes are linked together
+        check("link", windowsLinkOptions, "/WX") ++
+        check("lib", windowsLibOptions, "/WX") ++
+        // /WX- (after /WX) turns it off again
+        Seq(windowsClOptions, windowsLinkOptions, windowsLibOptions).flatMap { opts =>
+          Option.when(opts.contains("/WX-"))(s"$opts disables /WX")
+        }
+    if failures.nonEmpty then
+      sys.error(failures.mkString(s"${failures.size} failure(s):\n", "\n", ""))
+    println("warnings are errors on all OSes")
+  }
