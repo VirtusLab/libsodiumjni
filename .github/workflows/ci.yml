@@ -37,7 +37,7 @@ jobs:
     - uses: VirtusLab/scala-cli-setup@v1
       if: matrix.platform != 'windows-aarch64'
       with:
-        jvm: zulu:17
+        jvm: corretto:17
     # Mill and the tests must run on a native arm64 JVM there, so that the native library is built
     # for arm64 (setup-java picks the runner architecture by default)
     - uses: actions/setup-java@v6
@@ -45,6 +45,7 @@ jobs:
       with:
         distribution: zulu
         java-version: 17
+        check-latest: true
     - name: Run tests
       run: ./mill -i __.test
     - name: Test the build logic
@@ -87,7 +88,7 @@ jobs:
       - uses: coursier/cache-action@v9
       - uses: VirtusLab/scala-cli-setup@v1
         with:
-          jvm: zulu:17
+          jvm: corretto:17
       - uses: actions/download-artifact@v8
         with:
           name: artifacts-linux
@@ -132,7 +133,7 @@ jobs:
       - uses: coursier/cache-action@v9
       - uses: VirtusLab/scala-cli-setup@v1
         with:
-          jvm: zulu:17
+          jvm: corretto:17
       - uses: actions/download-artifact@v8
         with:
           name: artifacts-linux
