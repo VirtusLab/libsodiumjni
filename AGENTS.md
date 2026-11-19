@@ -48,6 +48,7 @@ Single Mill module, `libsodiumjni` (Java + C), with its tests in `libsodiumjni.t
 | `project/utils/tests/package.mill`                         | Tests of the above, as Mill commands (`./mill -i 'project.utils.tests._'`)                |
 | `project/publish/package.mill`                             | Published version computation (from git tags)                                            |
 | `project/visualstudioutil/package.mill`                    | Visual Studio environment lookup (Windows)                                               |
+| `LICENSE`, `THIRD-PARTY-NOTICES.txt`                      | libsodiumjni's license (Apache 2.0), libsodium's (ISC), bundled in the JAR under `META-INF/libsodiumjni/`. `./mill -i libsodiumjni.checkThirdPartyNotices` compares libsodium's with its source tarball (update it with `libsodiumVersion`) |
 | `.github/scripts/check-release-natives.sh`                 | Checks a release has the native libraries of all platforms, for the right architecture  |
 
 ## Build and test

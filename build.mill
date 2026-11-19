@@ -3,7 +3,13 @@ package build
 
 import build.project.settings.{GenerateHeaders, JniModule, JniPublishModule, JniResourcesModule}
 import build.project.publish.{computePublishVersion, gitCommitsSince, gitLastTag}
-import build.project.utils.{checkSha256, hostArch, isArmArchitecture, nativeResourceDirs}
+import build.project.utils.{
+  checkSha256,
+  hostArch,
+  isArmArchitecture,
+  nativeResourceDirs,
+  uncommentLicense
+}
 
 import coursier.cache.ArchiveCache
 import coursier.util.Artifact
@@ -152,6 +158,56 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
     downloadLibSodiumSources()
     downloadChecked(libSodiumMsvcZipUrl, libsodiumMsvcZipSha256)
     println("libsodium downloads OK")
+  }
+
+  // libsodiumjni's license, and the notices of the third-party software included in its shared
+  // libraries (libsodium, statically linked), bundled in the JAR under META-INF/libsodiumjni
+  // (rather than as a bare META-INF/LICENSE, which collides with those of other JARs in
+  // assemblies, like Scala CLI's JVM launcher). The files at the repository root are the source.
+  def licenseFile           = Task.Source(BuildCtx.workspaceRoot / "LICENSE")
+  def thirdPartyNoticesFile = Task.Source(BuildCtx.workspaceRoot / "THIRD-PARTY-NOTICES.txt")
+  def licenseResources      = Task {
+    val dir = Task.dest / "resources"
+    os.copy.over(
+      licenseFile().path,
+      dir / "META-INF" / "libsodiumjni" / "LICENSE",
+      createFolders = true
+    )
+    os.copy.over(
+      thirdPartyNoticesFile().path,
+      dir / "META-INF" / "libsodiumjni" / "THIRD-PARTY-NOTICES.txt",
+      createFolders = true
+    )
+    PathRef(dir)
+  }
+  def resources = Task {
+    super.resources() ++ Seq(licenseResources())
+  }
+
+  /**
+   * Checks that THIRD-PARTY-NOTICES.txt has the license of the libsodium release the build uses,
+   * as in its (checksummed) source tarball, so that it gets updated along with libsodiumVersion
+   * (run on the CI)
+   */
+  def checkThirdPartyNotices() = Task.Command {
+    val tarball  = downloadLibSodiumSources()
+    val license  = os.proc("tar", "-xzOf", tarball, s"libsodium-$libsodiumVersion/LICENSE")
+      .call()
+      .out
+      .text()
+    val expected = uncommentLicense(license)
+    // so that the check below can't pass vacuously (an empty expected text is in any file)
+    if !expected.contains("ISC License") || !expected.contains("Copyright") then
+      sys.error(
+        s"Couldn't read the license of libsodium $libsodiumVersion from $tarball:\n$expected"
+      )
+    val notices  = os.read(thirdPartyNoticesFile().path).replace("\r\n", "\n")
+    if !notices.contains(expected) then
+      sys.error(
+        s"THIRD-PARTY-NOTICES.txt doesn't have the license of libsodium $libsodiumVersion. " +
+          s"Expected it to contain (from its LICENSE file, without the comment markers):\n$expected"
+      )
+    println(s"THIRD-PARTY-NOTICES.txt has the license of libsodium $libsodiumVersion")
   }
 
   def extraUnixCOptions = Task {
