@@ -269,7 +269,12 @@ object libsodiumjni extends MavenModule with JniModule with JniPublishModule wit
 
     def forkArgs = Task {
       val objectFiles = nativeObjectFiles().map(_.path).mkString(java.io.File.pathSeparator)
-      super.forkArgs() ++ Seq(s"-Dlibsodiumjni.test.objectFiles=$objectFiles")
+      super.forkArgs() ++ Seq(
+        s"-Dlibsodiumjni.test.objectFiles=$objectFiles",
+        // the JVM aborts on fatal JNI misuse in any test (JniCheckTests also fails on the
+        // warnings, that the JVM only prints)
+        "-Xcheck:jni"
+      )
     }
 
 def publishSonatype(tasks: Tasks[PublishModule.PublishData]) =

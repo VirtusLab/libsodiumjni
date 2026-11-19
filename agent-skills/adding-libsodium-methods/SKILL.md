@@ -30,7 +30,9 @@ description: Expose a new libsodium function through libsodiumjni's JNI bindings
 
 5. **Tests** (in `libsodiumjni/src/test/java/libsodiumjni/tests/`), written first: behavior (`SodiumTests`), invalid
    sizes (`SodiumInputValidationTests`), null arrays (`SodiumNullArgumentsTests`), at both the `Sodium` and `SodiumApi`
-   levels. If the function handles secrets, extend `NativeMemoryWipingTests` / `FreeCheckerChild`.
+   levels. If the function handles secrets, extend `NativeMemoryWipingTests` / `FreeCheckerChild`. Call it from
+   `JniCheckChild` too (success and error paths): `JniCheckTests` runs it with `-Xcheck:jni`, and fails on any JNI
+   misuse the JVM reports.
 
-6. Run `./mill -i __.test`, and on Linux too if possible (see the `linux-docker-testing` skill). Running the tests
-   with `JAVA_TOOL_OPTIONS=-Xcheck:jni` catches JNI misuse.
+6. Run `./mill -i __.test` (the test JVM runs with `-Xcheck:jni`), and on Linux too if possible (see the
+   `linux-docker-testing` skill).
